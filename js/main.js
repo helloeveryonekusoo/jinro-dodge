@@ -8,6 +8,7 @@ import { ClientNet } from './net/client.js';
 import * as ui from './ui/screens.js';
 import { showToast } from './ui/toast.js';
 import { startTimer, stopTimer } from './ui/timer.js';
+import { initSound, playChime, playVoteChime } from './ui/sound.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -23,6 +24,15 @@ const state = {
 function sendToHost(msg) {
   if (state.isHost) state.hostNet.sendAsPlayer(msg);
   else state.clientNet.send(msg);
+}
+
+// フェーズ切り替え時のチャイム（同じフェーズで二重に鳴らさない）
+let lastChimeKey = '';
+function chimeOnce(key, vote = false) {
+  if (key === lastChimeKey) return;
+  lastChimeKey = key;
+  if (vote) playVoteChime();
+  else playChime();
 }
 
 // ---------- 受信メッセージの処理 ----------
@@ -47,6 +57,8 @@ function handleMessage(msg) {
 
     case H2C.PICK:
       stopTimer();
+      lastChimeKey = ''; // 新しいゲーム開始でチャイム履歴をリセット
+      chimeOnce('pick');
       ui.hideMyCard();
       ui.hideHandPanel();
       ui.renderPick(msg, (index) => {
@@ -63,6 +75,7 @@ function handleMessage(msg) {
       break;
 
     case H2C.DAWN:
+      chimeOnce('dawn');
       ui.setMyCard(msg.you);
       ui.renderDawn(msg, {
         onAct: (act) => sendToHost({ type: C2H.DAWN_ACT, ...act }),
@@ -75,11 +88,13 @@ function handleMessage(msg) {
       break;
 
     case H2C.DAY:
+      chimeOnce('day');
       ui.showScreen('day');
       startTimer($('day-timer'), msg.duration);
       break;
 
     case H2C.AFTERNOON:
+      chimeOnce(`aft-${msg.stepRoleName}`);
       ui.renderAfternoon(msg, (act) => sendToHost({ type: C2H.AFT_ACT, ...act }));
       startTimer($('afternoon-timer'), msg.duration);
       break;
@@ -93,16 +108,19 @@ function handleMessage(msg) {
       break;
 
     case H2C.EVENING:
+      chimeOnce('evening');
       ui.showScreen('evening');
       startTimer($('evening-timer'), msg.duration);
       break;
 
     case H2C.VOTE:
       stopTimer();
+      chimeOnce('vote', true);
       ui.renderVote(msg, state.selfId, (targetId) => sendToHost({ type: C2H.VOTE, targetId }));
       break;
 
     case H2C.RESULT:
+      chimeOnce('result');
       ui.renderResult(msg, state.isHost);
       break;
   }
@@ -205,3 +223,7 @@ $('btn-next-game').addEventListener('click', () => state.hostNet.nextGame());
 $('input-code').addEventListener('keydown', (e) => {
   if (e.key === 'Enter') $('btn-join').click();
 });
+
+// 音声はユーザー操作後でないと再生できないため、操作のたびに初期化を試みる
+document.addEventListener('pointerdown', initSound);
+document.addEventListener('keydown', initSound);
