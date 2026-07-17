@@ -7,7 +7,7 @@ body {
   background: #1b1e2b;
   color: #eceff4;
   min-height: 100vh;
-  padding-bottom: 180px; /* チャット分の余白 */
+  padding-bottom: 40px;
 }
 
 #app-header {
@@ -306,29 +306,48 @@ button.selected { outline: 3px solid #e0af68; }
   z-index: 10;
 }
 
-/* チャット */
-#chat-panel {
+/* システム通知トースト */
+#toast-area {
   position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+  pointer-events: none;
+}
+.toast {
   background: #12141d;
-  border-top: 2px solid #3b4261;
-  padding: 8px 12px;
-  z-index: 20;
+  border: 1px solid #e0af68;
+  color: #e0af68;
+  padding: 8px 18px;
+  border-radius: 20px;
+  font-size: 0.9rem;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+  animation: toast-in 0.2s ease-out;
 }
-#chat-log {
-  height: 90px;
-  overflow-y: auto;
-  font-size: 0.85rem;
-  margin-bottom: 6px;
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
 }
-#chat-log .chat-line { margin: 2px 0; }
-#chat-log .chat-name { color: #7aa2f7; font-weight: bold; }
-#chat-log .chat-system { color: #e0af68; font-style: italic; }
-#chat-form { display: flex; gap: 8px; }
-#chat-form input { flex: 1; padding: 8px; font-size: 1rem; }
-#chat-form button { padding: 8px 16px; }
+
+/* 他プレイヤーの裏向きカード（メモ付き） */
+#others-cards { display: flex; gap: 12px; flex-wrap: wrap; }
+#others-cards .board-col { min-width: 110px; }
+.board-memo {
+  width: 100%;
+  font-size: 0.75rem;
+  padding: 4px;
+  margin-top: 2px;
+  border-radius: 6px;
+  border: 1px dashed #3b4261;
+  background: #24283b;
+  color: #eceff4;
+  box-sizing: border-box;
+}
 
 .rules-summary ol { padding-left: 20px; }
 .rules-summary li { margin: 6px 0; }

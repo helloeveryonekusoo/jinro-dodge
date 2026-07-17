@@ -319,9 +319,7 @@ export function showAfternoonResult(msg) {
 export function renderVote(msg, selfId, onVote) {
   showScreen('vote');
   $('vote-msg').textContent = '';
-  $('vote-desc').textContent = msg.runoff
-    ? '⚖️ 決選投票！ 同数だった候補の中から追放したい人を選んでください。'
-    : '追放したい人を選んでください。（自分には投票できません）';
+  $('vote-desc').textContent = '追放したい人を選んでください。（自分には投票できません）';
   const box = $('vote-candidates');
   box.innerHTML = '';
   let voted = false;
@@ -360,11 +358,15 @@ export function renderResult(msg, isHost) {
   const main = $('result-main');
   main.innerHTML = '';
   const exiledP = document.createElement('p');
-  if (msg.exiled) {
-    exiledP.append(`追放されたのは ${msg.exiled.name} さん — `);
-    exiledP.appendChild(roleCardEl(msg.exiled.card, true));
+  if (msg.exiled && msg.exiled.length > 0) {
+    exiledP.append(msg.exiled.length > 1 ? '同数のため全員追放: ' : '追放されたのは ');
+    msg.exiled.forEach((e, i) => {
+      if (i > 0) exiledP.append(' / ');
+      exiledP.append(`${e.name} さん — `);
+      exiledP.appendChild(roleCardEl(e.card, true));
+    });
   } else {
-    exiledP.textContent = '投票の結果「人狼はいない」が選ばれ、誰も追放されませんでした。';
+    exiledP.textContent = '全員一致で「人狼はいない」が選ばれ、誰も追放されませんでした。';
   }
   main.appendChild(exiledP);
   const winner = document.createElement('p');
@@ -426,26 +428,29 @@ export function renderResult(msg, isHost) {
   }
 }
 
-// ---------- 配られたカードの常時表示＋メモ ----------
+// ---------- 配られたカード＋全員のカードの常時表示・メモ ----------
 
-let hand = { slots: null, usedIndex: -1 };
-
-/** カード選択後、配られた全カードを画面に残す（メモ欄付き） */
+/** カード選択後、配られた全カードを画面に残す（メモ欄付き・伏せ1/2表記） */
 export function renderHandPanel(cards, usedIndex) {
-  hand = { slots: [], usedIndex };
   $('hand-panel').classList.remove('hidden');
   const box = $('hand-cards');
   box.innerHTML = '';
+  let fieldNo = 0;
   cards.forEach((card, i) => {
+    const isUsed = i === usedIndex;
+    if (!isUsed) fieldNo++;
     const el = document.createElement('div');
-    el.className = 'hand-card' + (i === usedIndex ? ' used-card' : '');
+    el.className = 'hand-card' + (isUsed ? ' used-card' : '');
     const status = document.createElement('span');
     status.className = 'hand-status';
-    status.textContent = i === usedIndex ? '使用中' : '伏せ';
+    // 伏せカードには番号を付ける（警官・DJの「伏せ1/伏せ2」と対応）
+    status.textContent = isUsed ? '使用中' : `伏せ${fieldNo}`;
     const name = document.createElement('div');
     name.className = 'hand-name';
+    name.textContent = card.name;
     const team = document.createElement('div');
     team.className = 'hand-team';
+    team.textContent = `陣営: ${card.team}`;
     const memo = document.createElement('input');
     memo.className = 'memo';
     memo.type = 'text';
@@ -453,29 +458,34 @@ export function renderHandPanel(cards, usedIndex) {
     memo.placeholder = 'メモ…';
     el.append(status, name, team, memo);
     box.appendChild(el);
-    hand.slots.push({ card, name, team });
   });
-  refreshHandCards();
 }
 
-function refreshHandCards() {
-  if (!hand.slots) return;
-  for (const s of hand.slots) {
-    s.name.textContent = s.card.name;
-    s.team.textContent = `陣営: ${s.card.team}`;
+/** 他のプレイヤー全員のカードを裏向きで表示（各カードにメモ欄付き） */
+export function renderOthersPanel(players, selfId, fieldCount) {
+  const box = $('others-cards');
+  box.innerHTML = '';
+  for (const p of players) {
+    if (p.id === selfId) continue;
+    const col = document.createElement('div');
+    col.className = 'board-col';
+    const nm = document.createElement('div');
+    nm.className = 'board-name';
+    nm.textContent = p.name;
+    col.appendChild(nm);
+    const labels = ['使用中'];
+    for (let i = 1; i <= fieldCount; i++) labels.push(`伏せ${i}`);
+    for (const label of labels) {
+      col.appendChild(cardBackEl(label));
+      const memo = document.createElement('input');
+      memo.className = 'board-memo';
+      memo.type = 'text';
+      memo.maxLength = 20;
+      memo.placeholder = 'メモ…';
+      col.appendChild(memo);
+    }
+    box.appendChild(col);
   }
-}
-
-/** DJ交換: 使用中カードと伏せカード(fieldIndex)の中身を入れ替えて表示を更新 */
-export function swapHandCards(newUsedCard, fieldIndex) {
-  if (!hand.slots) return;
-  const fieldSlots = hand.slots.filter((_, i) => i !== hand.usedIndex);
-  const fs = fieldSlots[fieldIndex];
-  const us = hand.slots[hand.usedIndex];
-  if (!fs || !us) return;
-  fs.card = us.card;
-  us.card = newUsedCard;
-  refreshHandCards();
 }
 
 export function hideHandPanel() {

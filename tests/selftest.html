@@ -7,6 +7,7 @@
 // ゲームエンジンの通しテスト（UI・通信を介さずEngineを直接駆動する）
 import { loadRoles } from '../js/data/csv.js';
 import { Engine } from '../js/game/engine.js';
+import { judge } from '../js/game/scoring.js';
 
 const out = [];
 const log = (s) => out.push(s);
@@ -43,7 +44,7 @@ function runAfternoon(e) {
   return true;
 }
 
-function playGame(roles, n, { seerSkip = false, tie = false, nobody = false } = {}) {
+function playGame(roles, n, { seerSkip = false, tie = false, nobody = false, nobodyPartial = false } = {}) {
   const inbox = {};
   const names = Array.from({ length: n }, (_, i) => 'P' + i);
   const e = makeEngine(roles, names, inbox);
@@ -68,35 +69,28 @@ function playGame(roles, n, { seerSkip = false, tie = false, nobody = false } = 
   e.endDay();
   assert(e.phase === 'afternoon' || e.phase === 'evening', `${n}人戦: 昼過ぎに移行`);
 
-  if (e.smallGame) {
-    // 少人数戦では占い延期の有無に関係なく、占い師ステップが常に先頭にある（延期を隠すため）
-    assert(e.steps.length > 0 && e.steps[0].role.id === 'seer' && e.steps[0].onlySkipped,
-      `${n}人戦: 昼過ぎ手順の先頭が占い師（常設）`);
-  }
+  // 延期・時間切れの有無に関係なく、全人数で占い師ステップが常に先頭にある
+  assert(e.steps.length > 0 && e.steps[0].role.id === 'seer' && e.steps[0].onlySkipped,
+    `${n}人戦: 昼過ぎ手順の先頭が占い師（常設）`);
   if (!runAfternoon(e)) return;
   assert(e.phase === 'evening', `${n}人戦: 夕方に移行`);
   e.endEvening();
   assert(e.phase === 'vote', `${n}人戦: 投票に移行`);
 
   if (tie) {
-    // p0とp1が同数になるように投票 → 決選投票の検証
+    // p0とp1が同数になるように投票 → 同数だった全員が追放される
     for (const p of e.players) {
       const half = e.players.indexOf(p) % 2 === 0;
       let t = half ? 'p1' : 'p0';
       if (t === p.id) t = other(e, p);
       e.handleVote(p.id, t);
     }
-    if (e.phase === 'vote' && e.isRunoff) {
-      assert(true, `${n}人戦: 同数→決選投票が発生`);
-      for (const p of e.players) {
-        const t = p.id === 'p0' ? (e.voteCandidates.find(c => c !== 'p0') || 'p1') : 'p0';
-        if (e.voteCandidates.includes(t) && t !== p.id) e.handleVote(p.id, t);
-        else e.handleVote(p.id, e.voteCandidates.find(c => c !== p.id));
-      }
-    }
   } else if (nobody) {
-    // 全員が「人狼はいない」に投票
+    // 全員一致で「人狼はいない」に投票 → 成立
     for (const p of e.players) e.handleVote(p.id, 'NOBODY');
+  } else if (nobodyPartial) {
+    // p0だけ「人狼はいない」に投票（不一致 → 無効票）、他はp0に投票
+    for (const p of e.players) e.handleVote(p.id, p.id === 'p0' ? 'NOBODY' : 'p0');
   } else {
     for (const p of e.players) e.handleVote(p.id, p.id === 'p0' ? 'p1' : 'p0');
   }
@@ -105,15 +99,23 @@ function playGame(roles, n, { seerSkip = false, tie = false, nobody = false } = 
   const result = (inbox['p0'] || []).filter(m => m.type === 'result').pop();
   assert(!!result, `${n}人戦: 結果メッセージを受信`);
   if (result) {
-    const exiledLabel = result.exiled ? `${result.exiled.name}(${result.exiled.card.name})` : '追放なし';
+    const exiledLabel = result.exiled.length > 0
+      ? result.exiled.map(x => `${x.name}(${x.card.name})`).join('・') : '追放なし';
     log(`  → ${result.winnerLabel} 追放: ${exiledLabel}`);
     log(`  → 得点: ${result.scores.map(s => `${s.name}:${s.delta > 0 ? '+' : ''}${s.delta}(計${s.total})`).join(' ')}`);
     const deltaOk = result.scores.every(s => typeof s.delta === 'number' && typeof s.total === 'number');
     assert(deltaOk, `${n}人戦: 得点計算が数値`);
+    if (tie) {
+      assert(result.exiled.length === 2, `${n}人戦: 同数→2人とも追放`);
+    }
     if (nobody) {
-      assert(result.exiled === null, `${n}人戦: 「人狼はいない」→追放者なし`);
+      assert(result.exiled.length === 0, `${n}人戦: 全員一致「人狼はいない」→追放者なし`);
       assert(result.winnerTeam === '市民' || result.winnerTeam === '人狼',
         `${n}人戦: 「人狼はいない」の勝敗判定 (${result.winnerLabel})`);
+    }
+    if (nobodyPartial) {
+      assert(result.exiled.length === 1 && result.exiled[0].name === 'P0',
+        `${n}人戦: 不一致の「人狼はいない」票は無効→P0が追放`);
     }
   }
 
@@ -137,13 +139,75 @@ function playGame(roles, n, { seerSkip = false, tie = false, nobody = false } = 
 
 try {
   const roles = await loadRoles('../data/roles.csv');
-  assert(roles.length === 6, `roles.csv: 6役職を読み込み (実際:${roles.length})`);
+  assert(roles.length === 7, `roles.csv: 7役職を読み込み (実際:${roles.length})`);
 
-  playGame(roles, 5);                        // 通常戦
-  playGame(roles, 3, { seerSkip: true });    // 少人数戦 + 占い延期
-  playGame(roles, 4, { tie: true });         // 決選投票
-  playGame(roles, 8);                        // 最大人数
-  playGame(roles, 5, { nobody: true });      // 「人狼はいない」投票
+  playGame(roles, 5);                            // 通常戦
+  playGame(roles, 3, { seerSkip: true });        // 少人数戦 + 占い延期
+  playGame(roles, 4, { tie: true });             // 同数→全員追放
+  playGame(roles, 8);                            // 最大人数
+  playGame(roles, 5, { nobody: true });          // 「人狼はいない」全員一致
+  playGame(roles, 5, { nobodyPartial: true });   // 「人狼はいない」不一致→無効票
+
+  // 3人戦の山札: 人狼1枚＋狂人1枚になっている
+  {
+    const madman = roles.find(r => r.id === 'madman');
+    const wolf = roles.find(r => r.id === 'werewolf');
+    assert(!!madman && madman.counts[3] === 1 && madman.team === '人狼' && !madman.isWolf,
+      '3人戦: 狂人が1枚（人狼陣営・人狼判定なし）');
+    assert(wolf.counts[3] === 1 && wolf.isWolf, '3人戦: 人狼は1枚（人狼判定あり）');
+  }
+
+  // 狂人の勝敗判定（judge単体テスト）
+  {
+    const W = { name: '人狼', team: '人狼', isWolf: true };
+    const M = { name: '狂人', team: '人狼', isWolf: false };
+    const C = { name: '市民', team: '市民', isWolf: false };
+    const ps = [
+      { id: 'a', name: 'A', used: W },
+      { id: 'b', name: 'B', used: M },
+      { id: 'c', name: 'C', used: C },
+    ];
+    let r = judge(ps, ['b'], {});
+    assert(r.winnerTeam === '人狼' && r.deltas['a'] === 2 && r.deltas['b'] === 2,
+      '狂人を追放→人狼陣営の勝利（狂人にも+2）');
+    r = judge(ps, ['a'], {});
+    assert(r.winnerTeam === '市民' && r.deltas['c'] === 1, '人狼を追放→市民陣営の勝利');
+    r = judge(ps, ['a', 'b'], {});
+    assert(r.winnerTeam === '市民', '同数で人狼+狂人を追放→人狼が含まれるので市民勝利');
+    r = judge(ps, null, {});
+    assert(r.winnerTeam === '人狼', '人狼がいるのに「人狼はいない」→人狼勝利');
+    const ps2 = [
+      { id: 'b', name: 'B', used: M },
+      { id: 'c', name: 'C', used: C },
+      { id: 'd', name: 'D', used: C },
+    ];
+    r = judge(ps2, null, {});
+    assert(r.winnerTeam === '市民' && r.deltas['b'] === 0,
+      '狂人のみ（人狼不在）で「人狼はいない」→市民勝利・狂人は無得点');
+  }
+
+  // 占い師の時間切れ→昼過ぎ持ち越し
+  {
+    const inbox = {};
+    const e = makeEngine(roles, ['A', 'B', 'C', 'D', 'E'], inbox);
+    e.startGame();
+    for (const p of e.players) e.handlePick(p.id, chooseIdx(p.hand, 'seer'));
+    // 占い師は明け方に何もしないまま時間切れ
+    e.startDay();
+    const seer = e.players.find(p => p.used.id === 'seer');
+    if (seer) {
+      assert(seer.dawnSkipped, '時間切れの占い師は昼過ぎに持ち越し');
+      e.endDay();
+      assert(e.steps[0].role.id === 'seer', '通常戦でも占い師ステップが常設');
+      const actors = e.stepActors(e.steps[0]);
+      assert(actors.some(a => a.id === seer.id), '持ち越した占い師が昼過ぎに占える');
+      e.handleAftAct(seer.id, { targetId: other(e, seer) });
+      const got = (inbox[seer.id] || []).some(m => m.type === 'aftResult' && m.cards);
+      assert(got, '持ち越した占いの結果を受信');
+    } else {
+      log('SKIP: 占い師が使用されなかった（配札次第）');
+    }
+  }
 
   // DJ交換の検証: swapで使用カードが入れ替わるか
   {
@@ -175,8 +239,9 @@ try {
         e.handleAftAct(dj.id, { targetId: target.id, fieldIndex: 0 });
         assert(target.used.id === beforeField && target.field[0].id === beforeUsed,
           'DJ交換: 使用カードと伏せカードが入れ替わる');
+        // 完全秘匿: 交換されたことは対象者本人にも通知されない
         const notice = (inbox[target.id] || []).some(m => m.type === 'yourCard');
-        assert(notice, 'DJ交換: 対象者に新カードが通知される');
+        assert(!notice, 'DJ交換: 対象者にも通知されない（完全秘匿）');
       } else {
         log('SKIP: DJステップに到達せず（配札次第）');
       }

@@ -17,55 +17,71 @@ export const WIN_POINTS = {
 
 /**
  * 勝敗判定とポイント計算。
- * 陣営は「判定時点の使用カード」（DJ交換後）で決まる。
+ * 陣営・人狼判定は「判定時点の使用カード」（DJ交換後）で決まる。
+ * 「人狼かどうか」は陣営ではなく役職の人狼判定(isWolf)で判定する。
+ * → 狂人（人狼陣営・人狼判定なし）を追放しても人狼陣営の勝利になる。
+ * 投票同数の場合は決選投票を行わず同数の全員が追放される。
  * @param {Array} players - {id, name, used(役職), ...} の配列
- * @param {string|null} exiledId - 追放されたプレイヤーID。null は「人狼はいない」（追放なし）
- * @param {Object} finalVotes - {voterId: targetId} 最終（決選）投票
- * @returns {{winnerTeam, winnerLabel, deltas: {playerId: 点数増減}}}
+ * @param {Array<string>|null} exiledIds - 追放者ID配列（同数なら複数）。null は「人狼はいない」（追放なし）
+ * @param {Object} finalVotes - {voterId: targetId} 投票内容
+ * @returns {{winnerTeam, winnerLabel, deltas: {playerId: 点数増減}}} winnerTeam は勝った陣営
  */
-export function judge(players, exiledId, finalVotes) {
+export function judge(players, exiledIds, finalVotes) {
   const byId = new Map(players.map(p => [p.id, p]));
   const deltas = {};
   for (const p of players) deltas[p.id] = 0;
 
-  // 「人狼はいない」が選ばれた場合: 本当にいなければ市民勝利、潜んでいたら人狼勝利
-  if (exiledId === null) {
-    const wolves = players.filter(p => p.used.team === TEAM_WOLF);
-    let winnerTeam, winnerLabel;
-    if (wolves.length === 0) {
-      winnerTeam = TEAM_CITIZEN;
-      winnerLabel = '本当に人狼はいなかった！市民陣営の勝利！';
-      for (const p of players) {
-        if (p.used.team === TEAM_CITIZEN) deltas[p.id] += WIN_POINTS[TEAM_CITIZEN];
-      }
-    } else {
-      winnerTeam = TEAM_WOLF;
-      winnerLabel = '人狼は村に潜んでいた…人狼陣営の勝利！';
-      for (const p of wolves) deltas[p.id] += WIN_POINTS[TEAM_WOLF];
-    }
-    applyVotePenalty(players, byId, finalVotes, deltas);
-    return { winnerTeam, winnerLabel, deltas };
-  }
-
-  const exiled = byId.get(exiledId);
-  const winnerTeam = exiled.used.team; // 追放されたカードの陣営で勝敗が決まる
-
-  let winnerLabel;
-  if (winnerTeam === TEAM_WOLF) {
-    // 人狼を追放 → 市民陣営の勝利
-    winnerLabel = '市民陣営の勝利！';
+  const citizensWin = () => {
     for (const p of players) {
       if (p.used.team === TEAM_CITIZEN) deltas[p.id] += WIN_POINTS[TEAM_CITIZEN];
     }
-  } else if (winnerTeam === TEAM_GHOST) {
-    // おばけを追放 → 追放された本人の単独勝利
-    winnerLabel = `おばけ（${exiled.name}）の単独勝利！`;
-    deltas[exiledId] += WIN_POINTS[TEAM_GHOST];
-  } else {
-    // 市民系を追放 → 人狼陣営の勝利
-    winnerLabel = '人狼陣営の勝利！';
+    return TEAM_CITIZEN;
+  };
+  const wolvesWin = () => {
+    // 狂人を含む人狼陣営全員に加点
     for (const p of players) {
       if (p.used.team === TEAM_WOLF) deltas[p.id] += WIN_POINTS[TEAM_WOLF];
+    }
+    return TEAM_WOLF;
+  };
+
+  let winnerTeam, winnerLabel;
+
+  if (exiledIds === null) {
+    // 「人狼はいない」（全員一致）: 本当にいなければ市民勝利、潜んでいたら人狼勝利
+    const wolfExists = players.some(p => p.used.isWolf);
+    if (!wolfExists) {
+      winnerLabel = '本当に人狼はいなかった！市民陣営の勝利！';
+      winnerTeam = citizensWin();
+    } else {
+      winnerLabel = '人狼は村に潜んでいた…人狼陣営の勝利！';
+      winnerTeam = wolvesWin();
+    }
+  } else {
+    const exiledList = exiledIds.map(id => byId.get(id));
+    // 追放されたおばけは常に単独勝利（+3）
+    const ghosts = exiledList.filter(p => p.used.team === TEAM_GHOST);
+    for (const g of ghosts) deltas[g.id] += WIN_POINTS[TEAM_GHOST];
+    const ghostLabel = ghosts.length > 0
+      ? `おばけ（${ghosts.map(g => g.name).join('、')}）の単独勝利！` : '';
+
+    const wolfExiled = exiledList.some(p => p.used.isWolf);
+    const nonGhostExiled = exiledList.some(p => p.used.team !== TEAM_GHOST);
+
+    if (wolfExiled) {
+      // 人狼を1人でも追放できていれば市民陣営の勝利
+      winnerLabel = '市民陣営の勝利！';
+      winnerTeam = citizensWin();
+      if (ghostLabel) winnerLabel += ` さらに${ghostLabel}`;
+    } else if (nonGhostExiled) {
+      // 人狼以外（市民系・狂人）だけを追放 → 人狼陣営の勝利
+      winnerLabel = '人狼陣営の勝利！';
+      winnerTeam = wolvesWin();
+      if (ghostLabel) winnerLabel += ` さらに${ghostLabel}`;
+    } else {
+      // おばけだけが追放された
+      winnerTeam = TEAM_GHOST;
+      winnerLabel = ghostLabel;
     }
   }
 

@@ -67,6 +67,9 @@ export async function loadRoles(url = 'data/roles.csv') {
     counts: {},
   };
   for (let n = 3; n <= 8; n++) col.counts[n] = idx(`枚数_${n}人`);
+  // 人狼判定: 追放されたとき「人狼」として扱うか（狂人は人狼陣営だが0）。
+  // 列がない古いCSVでは陣営=人狼なら1として扱う。
+  const wolfCol = header.findIndex(h => h.trim() === '人狼判定');
 
   const roles = [];
   for (const r of rows.slice(1)) {
@@ -74,12 +77,14 @@ export async function loadRoles(url = 'data/roles.csv') {
     if (enabled === '0' || enabled === '') continue;
     const counts = {};
     for (let n = 3; n <= 8; n++) counts[n] = parseInt(r[col.counts[n]], 10) || 0;
+    const team = r[col.team].trim();
     roles.push({
       id: r[col.id].trim(),
       name: r[col.name].trim(),
-      team: r[col.team].trim(),
+      team,
       action: (r[col.action] || '').trim() || 'none',
       phase: (r[col.phase] || '').trim(), // '明け方' | '昼過ぎ' | ''
+      isWolf: wolfCol >= 0 ? (r[wolfCol] || '').trim() === '1' : team === '人狼',
       counts,
       desc: (r[col.desc] || '').trim(),
     });

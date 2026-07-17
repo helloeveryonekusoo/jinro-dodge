@@ -2,7 +2,7 @@
 // PeerJS でルームを作成し、クライアントの接続を受け付けて Engine に中継する。
 // ホスト自身も1プレイヤーとして参加する（ネットワークを介さずローカル配送）。
 
-import { C2H, H2C } from './protocol.js';
+import { C2H } from './protocol.js';
 import { Engine } from '../game/engine.js';
 
 export const ID_PREFIX = 'jinro-dodge-';
@@ -107,12 +107,6 @@ export class HostNet {
       case C2H.DAWN_ACT: e.handleDawnAct(playerId, msg); break;
       case C2H.AFT_ACT: e.handleAftAct(playerId, msg); break;
       case C2H.VOTE: e.handleVote(playerId, msg.targetId); break;
-      case C2H.CHAT: {
-        const p = e.getPlayer(playerId);
-        const text = String(msg.text || '').slice(0, 100);
-        if (p && text) e.broadcast({ type: H2C.CHAT, from: p.name, text });
-        break;
-      }
     }
   }
 

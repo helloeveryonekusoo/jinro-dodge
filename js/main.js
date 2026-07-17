@@ -6,7 +6,7 @@ import { C2H, H2C } from './net/protocol.js';
 import { HostNet } from './net/host.js';
 import { ClientNet } from './net/client.js';
 import * as ui from './ui/screens.js';
-import { initChat, addChatMessage, addSystemMessage } from './ui/chat.js';
+import { showToast } from './ui/toast.js';
 import { startTimer, stopTimer } from './ui/timer.js';
 
 const $ = (id) => document.getElementById(id);
@@ -39,7 +39,7 @@ function handleMessage(msg) {
 
     case H2C.ERROR:
       if ($('screen-lobby').classList.contains('hidden') && $('screen-home').classList.contains('hidden')) {
-        addSystemMessage(`⚠ ${msg.msg}`);
+        showToast(`⚠ ${msg.msg}`);
       } else {
         alert(msg.msg);
       }
@@ -51,8 +51,9 @@ function handleMessage(msg) {
       ui.hideHandPanel();
       ui.renderPick(msg, (index) => {
         sendToHost({ type: C2H.PICK, index });
-        // 配られたカードは選択後も画面に残す（メモ欄付き）
+        // 配られたカードと全員の裏向きカードを画面に残す（メモ欄付き）
         ui.renderHandPanel(msg.cards, index);
+        ui.renderOthersPanel(msg.players, state.selfId, msg.handSize - 1);
       });
       break;
 
@@ -87,14 +88,8 @@ function handleMessage(msg) {
       ui.showAfternoonResult(msg);
       break;
 
-    case H2C.YOUR_CARD:
-      ui.setMyCard(msg.card);
-      ui.swapHandCards(msg.card, msg.fieldIndex);
-      addSystemMessage(`🎧 DJによってあなたの使用カードが「${msg.card.name}」に変わりました！（この通知はあなたにだけ見えています）`);
-      break;
-
     case H2C.LOG:
-      addSystemMessage(msg.text);
+      showToast(msg.text);
       break;
 
     case H2C.EVENING:
@@ -109,10 +104,6 @@ function handleMessage(msg) {
 
     case H2C.RESULT:
       ui.renderResult(msg, state.isHost);
-      break;
-
-    case H2C.CHAT:
-      addChatMessage(msg.from, msg.text);
       break;
   }
 }
@@ -133,7 +124,6 @@ function getName() {
 }
 
 function enterGameUI() {
-  initChat((text) => sendToHost({ type: C2H.CHAT, text }));
   ui.setupHostButtons(state.isHost);
 }
 
@@ -200,7 +190,7 @@ $('btn-join').addEventListener('click', () => {
       $('btn-join').disabled = false;
     },
     onClose: () => {
-      addSystemMessage('⚠ ホストとの接続が切れました。ページを再読み込みして入り直してください。');
+      showToast('⚠ ホストとの接続が切れました。ページを再読み込みして入り直してください。', 15000);
     },
   });
 });

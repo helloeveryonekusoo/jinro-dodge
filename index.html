@@ -106,7 +106,7 @@
       <div class="card-panel">
         <h2>☀️ 昼フェーズ（議論）</h2>
         <div class="timer" id="day-timer">3:00</div>
-        <p>話し合って人狼を探そう！（ボイスチャット推奨・下のチャットも使えます）</p>
+        <p>話し合って人狼を探そう！（ボイスチャットや対面での会話で議論してください）</p>
         <div class="button-row">
           <button id="btn-end-day" class="secondary hidden">議論を終了する（ホスト）</button>
         </div>
@@ -129,7 +129,7 @@
     <section id="screen-evening" class="screen hidden">
       <div class="card-panel">
         <h2>🌇 夕方フェーズ（最終議論）</h2>
-        <div class="timer" id="evening-timer">1:00</div>
+        <div class="timer" id="evening-timer">5:00</div>
         <p>まもなく投票です。最後の主張をどうぞ！</p>
         <div class="button-row">
           <button id="btn-end-evening" class="secondary hidden">最終議論を終了する（ホスト）</button>
@@ -142,6 +142,7 @@
       <div class="card-panel">
         <h2>🗳️ 投票</h2>
         <p id="vote-desc">追放したい人を選んでください。</p>
+        <p class="note">同数の場合は同数だった全員が追放されます。「人狼はいない」は全員一致のときだけ成立し、一致しなければその票は無効になります。</p>
         <div id="vote-candidates" class="card-row"></div>
         <p id="vote-msg" class="status-msg"></p>
       </div>
@@ -172,20 +173,16 @@
     あなたのカード: <strong id="my-card-name">?</strong>
   </div>
 
-  <!-- 配られたカードの常時表示＋メモ（ゲーム中は常時表示） -->
+  <!-- 配られたカード＋全員のカード（裏向き）の常時表示・メモ -->
   <div id="hand-panel" class="hidden">
     <div class="hand-title">🃏 あなたに配られたカード（メモを書いて推理に使えます）</div>
     <div id="hand-cards"></div>
+    <div class="hand-title">👥 他のプレイヤーのカード（裏向き・メモ可）</div>
+    <div id="others-cards"></div>
   </div>
 
-  <!-- チャット -->
-  <div id="chat-panel" class="hidden">
-    <div id="chat-log"></div>
-    <form id="chat-form">
-      <input type="text" id="chat-input" maxlength="100" placeholder="チャット…" autocomplete="off">
-      <button type="submit">送信</button>
-    </form>
-  </div>
+  <!-- システム通知（トースト） -->
+  <div id="toast-area"></div>
 
   <script type="module" src="js/main.js"></script>
 </body>

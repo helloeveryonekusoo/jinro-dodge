@@ -8,7 +8,7 @@ import { judge, NOBODY } from './scoring.js';
 import { roleView, playerView } from './views.js';
 
 const DAY_SECONDS = 180;      // 昼の議論時間（約3分）
-const EVENING_SECONDS = 60;   // 夕方の最終議論時間（約1分）
+const EVENING_SECONDS = 300;  // 夕方の最終議論時間（5分）
 const ACTION_SECONDS = 15;    // 役職アクションの制限時間（固定・短縮不可）
 
 export class Engine {
@@ -28,7 +28,6 @@ export class Engine {
     this.stepIndex = -1;
     this.votes = {};
     this.voteCandidates = [];
-    this.isRunoff = false;
   }
 
   send(playerId, msg) { this.sendFn(playerId, msg); }
@@ -120,7 +119,6 @@ export class Engine {
       p.dawnSkipped = false;
     });
     this.votes = {};
-    this.isRunoff = false;
     this.phase = 'pick';
 
     for (const p of this.players) {
@@ -129,6 +127,8 @@ export class Engine {
         cards: p.hand.map(roleView),
         handSize: handSizeFor(count),
         smallGame: this.smallGame,
+        // 全員分のカードを裏向きで表示してメモできるように、名前一覧を送る
+        players: this.players.map(q => ({ id: q.id, name: q.name })),
       });
     }
   }
@@ -196,6 +196,16 @@ export class Engine {
     }, ACTION_SECONDS * 1000);
   }
 
+  /** 明け方の終了処理: 時間切れで占えなかった占い師は昼過ぎに持ち越す */
+  carryOverDawnActors() {
+    for (const p of this.players) {
+      const r = p.used;
+      if (r.phase === '明け方' && r.action !== 'none' && r.action !== 'mate_check' && !p.dawnActed) {
+        p.dawnSkipped = true;
+      }
+    }
+  }
+
   handleDawnAct(id, { skip, targetId }) {
     if (this.phase !== 'dawn') return;
     const p = this.getPlayer(id);
@@ -220,6 +230,7 @@ export class Engine {
   // ---------- 昼（議論） ----------
 
   startDay() {
+    this.carryOverDawnActors();
     this.phase = 'day';
     this.broadcast({ type: H2C.DAY, duration: DAY_SECONDS });
     this.timerHandle = setTimeout(() => this.startAfternoon(), DAY_SECONDS * 1000);
@@ -238,14 +249,12 @@ export class Engine {
   startAfternoon() {
     if (this.phase !== 'day') return;
     this.phase = 'afternoon';
-    // 手順: （少人数戦のみ）占い師 → 警官 → DJ（CSVの行順）
+    // 手順: 占い師（延期・時間切れ分）→ 警官 → DJ（CSVの行順）
+    // 延期や時間切れの有無を隠すため、占い師のステップは毎回必ず設ける
     this.steps = [];
-    if (this.smallGame) {
-      // 占い延期の有無に関係なく毎回ステップを設ける（延期したかどうかを隠すため）
-      for (const role of this.roles) {
-        if (role.phase === '明け方' && role.action !== 'none' && role.action !== 'mate_check') {
-          this.steps.push({ role, onlySkipped: true });
-        }
+    for (const role of this.roles) {
+      if (role.phase === '明け方' && role.action !== 'none' && role.action !== 'mate_check') {
+        this.steps.push({ role, onlySkipped: true });
       }
     }
     for (const role of this.roles) {
@@ -346,10 +355,8 @@ export class Engine {
         const tmp = target.used;
         target.used = target.field[fi];
         target.field[fi] = tmp;
-        // 対象者には新しい使用カードを通知（実物のカードは手元で見られるのと同じ扱い）
-        if (target.connected) {
-          this.send(target.id, { type: H2C.YOUR_CARD, card: roleView(target.used), fieldIndex: fi });
-        }
+        // 交換したことは対象者本人にも通知しない。
+        // 全カードは裏のまま進行し、真実は結果発表で明らかになる。
         this.send(id, { type: H2C.AFT_RESULT, text: `${target.name}さんのカードを交換しました。（中身は見られません）` });
         break;
       }
@@ -372,14 +379,13 @@ export class Engine {
     this.startVote();
   }
 
-  startVote(candidates = null) {
+  startVote() {
     this.phase = 'vote';
     this.votes = {};
     // 「人狼はいない」（誰も追放しない）も候補に含める
-    this.voteCandidates = candidates || [...this.players.map(p => p.id), NOBODY];
+    this.voteCandidates = [...this.players.map(p => p.id), NOBODY];
     this.broadcast({
       type: H2C.VOTE,
-      runoff: this.isRunoff,
       candidates: this.voteCandidates.map(cid => {
         if (cid === NOBODY) return { id: NOBODY, name: '人狼はいない' };
         const c = this.getPlayer(cid);
@@ -410,47 +416,45 @@ export class Engine {
   }
 
   tallyVotes() {
+    const voters = this.connectedPlayers();
+    // 「人狼はいない」は全員一致のときだけ成立する
+    const allNobody = voters.length > 0 && voters.every(p => this.votes[p.id] === NOBODY);
+    if (allNobody) {
+      this.finishGame(null); // 追放なし
+      return;
+    }
+    // 一致しなかった場合、「人狼はいない」への票は無効票として集計から除外
     const counts = {};
     for (const targetId of Object.values(this.votes)) {
+      if (targetId === NOBODY) continue;
       counts[targetId] = (counts[targetId] || 0) + 1;
     }
     const max = Math.max(...Object.values(counts));
     const top = Object.keys(counts).filter(cid => counts[cid] === max);
-
-    if (top.length === 1) {
-      this.finishGame(top[0]);
-      return;
-    }
-    if (!this.isRunoff) {
-      // 同数 → 同数だった人だけで決選投票（1回）
-      this.isRunoff = true;
-      this.log('投票が同数のため、決選投票を行います。');
-      this.startVote(top);
-      return;
-    }
-    // 決選でも同数 → ランダムで追放（ハウスルール補完）
-    const exiledId = top[Math.floor(Math.random() * top.length)];
-    this.log('決選投票も同数だったため、ランダムで追放者を決定しました。');
-    this.finishGame(exiledId);
+    // 同数の場合は決選投票を行わず、同数だった全員を追放する
+    this.finishGame(top);
   }
 
   // ---------- 結果 ----------
 
-  finishGame(exiledId) {
+  /** @param {Array<string>|null} exiledIds 追放者ID配列（同数は複数）。null は「人狼はいない」成立 */
+  finishGame(exiledIds) {
     this.phase = 'result';
-    const noExile = exiledId === NOBODY;
-    const exiled = noExile ? null : this.getPlayer(exiledId);
-    const { winnerTeam, winnerLabel, deltas } = judge(this.players, noExile ? null : exiledId, this.votes);
+    const ids = exiledIds || [];
+    const { winnerTeam, winnerLabel, deltas } = judge(this.players, exiledIds, this.votes);
     for (const p of this.players) p.score += deltas[p.id];
 
     this.broadcast({
       type: H2C.RESULT,
-      exiled: exiled ? { name: exiled.name, card: roleView(exiled.used) } : null,
+      exiled: ids.map(id => {
+        const e = this.getPlayer(id);
+        return { name: e.name, card: roleView(e.used) };
+      }),
       winnerTeam,
       winnerLabel,
       reveal: this.players.map(p => ({
         name: p.name,
-        exiled: !noExile && p.id === exiledId,
+        exiled: ids.includes(p.id),
         used: roleView(p.used),
         field: p.field.map(roleView),
       })),
