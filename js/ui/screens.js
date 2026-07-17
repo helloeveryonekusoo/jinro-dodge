@@ -76,7 +76,7 @@ function renderCardBoard(container, targets, mode, fieldCount) {
 
     const fieldEls = [];
     for (let i = 0; i < fieldCount; i++) {
-      const fEl = cardBackEl(fieldCount > 1 ? `伏せ${i + 1}` : '伏せ');
+      const fEl = cardBackEl(`伏せ${i + 1}`);
       if (mode === 'field' || mode === 'field-all') {
         fEl.classList.add('selectable');
         fEl.addEventListener('click', () => {
@@ -309,6 +309,7 @@ export function showAfternoonResult(msg) {
   box.innerHTML = '';
   box.appendChild(document.createTextNode(msg.text + ' '));
   for (const card of msg.cards || []) {
+    if (card.label) box.appendChild(document.createTextNode(`${card.label}: `));
     box.appendChild(roleCardEl(card, true));
     box.appendChild(document.createTextNode(' '));
   }

@@ -45,11 +45,16 @@ export function judge(players, exiledIds, finalVotes) {
     return TEAM_WOLF;
   };
 
+  // 場（使用カード）に本物の人狼がいない場合、人狼陣営の役職（狂人）を人狼として扱う
+  const realWolfInPlay = players.some(p => p.used.isWolf);
+  const isWolfCard = (p) =>
+    p.used.isWolf || (!realWolfInPlay && p.used.team === TEAM_WOLF);
+
   let winnerTeam, winnerLabel;
 
   if (exiledIds === null) {
     // 「人狼はいない」（全員一致）: 本当にいなければ市民勝利、潜んでいたら人狼勝利
-    const wolfExists = players.some(p => p.used.isWolf);
+    const wolfExists = players.some(p => isWolfCard(p));
     if (!wolfExists) {
       winnerLabel = '本当に人狼はいなかった！市民陣営の勝利！';
       winnerTeam = citizensWin();
@@ -59,29 +64,21 @@ export function judge(players, exiledIds, finalVotes) {
     }
   } else {
     const exiledList = exiledIds.map(id => byId.get(id));
-    // 追放されたおばけは常に単独勝利（+3）
     const ghosts = exiledList.filter(p => p.used.team === TEAM_GHOST);
-    for (const g of ghosts) deltas[g.id] += WIN_POINTS[TEAM_GHOST];
-    const ghostLabel = ghosts.length > 0
-      ? `おばけ（${ghosts.map(g => g.name).join('、')}）の単独勝利！` : '';
 
-    const wolfExiled = exiledList.some(p => p.used.isWolf);
-    const nonGhostExiled = exiledList.some(p => p.used.team !== TEAM_GHOST);
-
-    if (wolfExiled) {
-      // 人狼を1人でも追放できていれば市民陣営の勝利
+    if (ghosts.length > 0) {
+      // おばけが追放されていれば最優先でおばけの単独勝利（他の陣営は無得点）
+      winnerTeam = TEAM_GHOST;
+      winnerLabel = `おばけ（${ghosts.map(g => g.name).join('、')}）の単独勝利！`;
+      for (const g of ghosts) deltas[g.id] += WIN_POINTS[TEAM_GHOST];
+    } else if (exiledList.some(p => isWolfCard(p))) {
+      // 人狼（または人狼扱いの狂人）を追放できていれば市民陣営の勝利
       winnerLabel = '市民陣営の勝利！';
       winnerTeam = citizensWin();
-      if (ghostLabel) winnerLabel += ` さらに${ghostLabel}`;
-    } else if (nonGhostExiled) {
-      // 人狼以外（市民系・狂人）だけを追放 → 人狼陣営の勝利
+    } else {
+      // 人狼以外だけを追放 → 人狼陣営の勝利
       winnerLabel = '人狼陣営の勝利！';
       winnerTeam = wolvesWin();
-      if (ghostLabel) winnerLabel += ` さらに${ghostLabel}`;
-    } else {
-      // おばけだけが追放された
-      winnerTeam = TEAM_GHOST;
-      winnerLabel = ghostLabel;
     }
   }
 

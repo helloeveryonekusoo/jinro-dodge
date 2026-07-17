@@ -157,11 +157,12 @@ try {
     assert(wolf.counts[3] === 1 && wolf.isWolf, '3人戦: 人狼は1枚（人狼判定あり）');
   }
 
-  // 狂人の勝敗判定（judge単体テスト）
+  // 狂人・おばけの勝敗判定（judge単体テスト）
   {
     const W = { name: '人狼', team: '人狼', isWolf: true };
     const M = { name: '狂人', team: '人狼', isWolf: false };
     const C = { name: '市民', team: '市民', isWolf: false };
+    const G = { name: 'おばけ', team: 'おばけ', isWolf: false };
     const ps = [
       { id: 'a', name: 'A', used: W },
       { id: 'b', name: 'B', used: M },
@@ -169,21 +170,41 @@ try {
     ];
     let r = judge(ps, ['b'], {});
     assert(r.winnerTeam === '人狼' && r.deltas['a'] === 2 && r.deltas['b'] === 2,
-      '狂人を追放→人狼陣営の勝利（狂人にも+2）');
+      '人狼がいる場で狂人を追放→人狼陣営の勝利（狂人にも+2）');
     r = judge(ps, ['a'], {});
     assert(r.winnerTeam === '市民' && r.deltas['c'] === 1, '人狼を追放→市民陣営の勝利');
     r = judge(ps, ['a', 'b'], {});
     assert(r.winnerTeam === '市民', '同数で人狼+狂人を追放→人狼が含まれるので市民勝利');
     r = judge(ps, null, {});
     assert(r.winnerTeam === '人狼', '人狼がいるのに「人狼はいない」→人狼勝利');
+
+    // 場の人狼陣営が狂人だけ → 狂人を人狼として扱う
     const ps2 = [
       { id: 'b', name: 'B', used: M },
       { id: 'c', name: 'C', used: C },
       { id: 'd', name: 'D', used: C },
     ];
+    r = judge(ps2, ['b'], {});
+    assert(r.winnerTeam === '市民' && r.deltas['c'] === 1,
+      '人狼不在の場で狂人を追放→狂人は人狼扱い→市民勝利');
     r = judge(ps2, null, {});
-    assert(r.winnerTeam === '市民' && r.deltas['b'] === 0,
-      '狂人のみ（人狼不在）で「人狼はいない」→市民勝利・狂人は無得点');
+    assert(r.winnerTeam === '人狼' && r.deltas['b'] === 2,
+      '人狼不在でも狂人がいれば「人狼はいない」→人狼陣営（狂人）の勝利');
+    r = judge(ps2, ['c'], {});
+    assert(r.winnerTeam === '人狼' && r.deltas['b'] === 2,
+      '人狼不在の場で市民を追放→人狼陣営（狂人）の勝利');
+
+    // おばけは最優先で単独勝利
+    const ps3 = [
+      { id: 'a', name: 'A', used: W },
+      { id: 'g', name: 'Gh', used: G },
+      { id: 'c', name: 'C', used: C },
+    ];
+    r = judge(ps3, ['g'], {});
+    assert(r.winnerTeam === 'おばけ' && r.deltas['g'] === 3, 'おばけを追放→単独勝利');
+    r = judge(ps3, ['g', 'a'], {});
+    assert(r.winnerTeam === 'おばけ' && r.deltas['g'] === 3 && r.deltas['c'] === 0 && r.deltas['a'] === 0,
+      '同数でおばけ+人狼を追放→おばけが最優先で単独勝利（他陣営は無得点）');
   }
 
   // 占い師の時間切れ→昼過ぎ持ち越し

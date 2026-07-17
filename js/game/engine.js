@@ -344,7 +344,8 @@ export class Engine {
         this.send(id, {
           type: H2C.AFT_RESULT,
           text: `${target.name}さんの伏せカードを確認しました。`,
-          cards: cards.map(roleView),
+          // どのカードか分かるように「伏せ1/伏せ2」のラベルを付ける
+          cards: cards.map((c, i) => ({ ...roleView(c), label: `伏せ${i + 1}` })),
         });
         break;
       }
