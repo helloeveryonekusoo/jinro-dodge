@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>人狼ドッチ - オンライン</title>
+  <link rel="stylesheet" href="css/style.css">
+  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+</head>
+<body>
+  <script>
+    // ファイルを直接開いた場合はJSモジュールが動かないため、案内を表示する
+    if (location.protocol === 'file:') {
+      document.addEventListener('DOMContentLoaded', function () {
+        var el = document.createElement('div');
+        el.style.cssText = 'background:#f7768e;color:#12141d;padding:16px;border-radius:8px;margin:16px auto;max-width:688px;font-weight:bold;line-height:1.8';
+        el.innerHTML = '⚠ このファイルを直接開くとゲームは動きません。<br>' +
+          '同じフォルダにある <u>ゲーム起動.bat</u> をダブルクリックして起動するか、<br>' +
+          'GitHub Pages に公開したURLからアクセスしてください。（詳しくは README.md）';
+        document.getElementById('app').prepend(el);
+      });
+    }
+  </script>
+  <header id="app-header">
+    <h1>🐺 人狼ドッチ</h1>
+    <div id="room-info" class="hidden">
+      <span>ルームコード: <strong id="room-code-display"></strong></span>
+    </div>
+  </header>
+
+  <main id="app">
+
+    <!-- ホーム画面 -->
+    <section id="screen-home" class="screen">
+      <div class="card-panel">
+        <h2>ようこそ</h2>
+        <label>あなたの名前
+          <input type="text" id="input-name" maxlength="10" placeholder="なまえ">
+        </label>
+        <div class="button-row">
+          <button id="btn-create" class="primary">部屋を作る</button>
+        </div>
+        <hr>
+        <label>ルームコードで参加
+          <input type="text" id="input-code" maxlength="4" placeholder="例: ABCD" style="text-transform:uppercase">
+        </label>
+        <div class="button-row">
+          <button id="btn-join" class="primary">部屋に参加</button>
+        </div>
+        <p id="home-error" class="error-msg"></p>
+        <p id="home-status" class="status-msg"></p>
+      </div>
+      <div class="card-panel rules-summary">
+        <h3>遊び方（かんたん）</h3>
+        <ol>
+          <li>役職カードが2枚配られる（3〜4人なら3枚）</li>
+          <li>1枚を選んで使い、残りは場に伏せる</li>
+          <li>明け方 → 議論 → 役職アクション → 投票</li>
+          <li>追放されたのが人狼なら市民の勝ち！ おばけなら追放された人の単独勝利！</li>
+        </ol>
+      </div>
+    </section>
+
+    <!-- ロビー画面 -->
+    <section id="screen-lobby" class="screen hidden">
+      <div class="card-panel">
+        <h2>ロビー</h2>
+        <p>友達にルームコード <strong id="lobby-code" class="big-code"></strong> を伝えよう</p>
+        <h3>参加者 (<span id="lobby-count">0</span>/8)</h3>
+        <ul id="lobby-players" class="player-list"></ul>
+        <div class="button-row">
+          <button id="btn-start" class="primary hidden">ゲーム開始（3人以上）</button>
+        </div>
+        <p id="lobby-msg" class="status-msg">ホストの開始を待っています…</p>
+      </div>
+      <div class="card-panel">
+        <h3>役職一覧</h3>
+        <ul id="role-list" class="role-list"></ul>
+      </div>
+    </section>
+
+    <!-- カード選択画面 -->
+    <section id="screen-pick" class="screen hidden">
+      <div class="card-panel">
+        <h2>カードを選ぼう</h2>
+        <p>配られたカードから <strong>使用する1枚</strong> を選んでください。残りは場に伏せられます。</p>
+        <div id="pick-cards" class="card-row"></div>
+        <p id="pick-msg" class="status-msg"></p>
+      </div>
+    </section>
+
+    <!-- 明け方画面 -->
+    <section id="screen-dawn" class="screen hidden">
+      <div class="card-panel">
+        <h2>🌄 明け方フェーズ</h2>
+        <div id="dawn-mycard"></div>
+        <div id="dawn-info" class="info-box"></div>
+        <div id="dawn-action"></div>
+        <div class="button-row">
+          <button id="btn-dawn-ready" class="primary hidden">準備完了</button>
+        </div>
+        <p id="dawn-msg" class="status-msg"></p>
+      </div>
+    </section>
+
+    <!-- 昼（議論）画面 -->
+    <section id="screen-day" class="screen hidden">
+      <div class="card-panel">
+        <h2>☀️ 昼フェーズ（議論）</h2>
+        <div class="timer" id="day-timer">3:00</div>
+        <p>話し合って人狼を探そう！（ボイスチャット推奨・下のチャットも使えます）</p>
+        <div class="button-row">
+          <button id="btn-end-day" class="secondary hidden">議論を終了する（ホスト）</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- 昼過ぎ（役職アクション）画面 -->
+    <section id="screen-afternoon" class="screen hidden">
+      <div class="card-panel">
+        <h2>🕒 昼過ぎフェーズ（役職アクション）</h2>
+        <p id="afternoon-step" class="step-label"></p>
+        <div id="afternoon-action"></div>
+        <div id="afternoon-result" class="info-box hidden"></div>
+        <h3>アクションログ</h3>
+        <ul id="afternoon-log" class="log-list"></ul>
+      </div>
+    </section>
+
+    <!-- 夕方（最終議論）画面 -->
+    <section id="screen-evening" class="screen hidden">
+      <div class="card-panel">
+        <h2>🌇 夕方フェーズ（最終議論）</h2>
+        <div class="timer" id="evening-timer">1:00</div>
+        <p>まもなく投票です。最後の主張をどうぞ！</p>
+        <div class="button-row">
+          <button id="btn-end-evening" class="secondary hidden">最終議論を終了する（ホスト）</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- 投票画面 -->
+    <section id="screen-vote" class="screen hidden">
+      <div class="card-panel">
+        <h2>🗳️ 投票</h2>
+        <p id="vote-desc">追放したい人を選んでください。</p>
+        <div id="vote-candidates" class="card-row"></div>
+        <p id="vote-msg" class="status-msg"></p>
+      </div>
+    </section>
+
+    <!-- 結果画面 -->
+    <section id="screen-result" class="screen hidden">
+      <div class="card-panel">
+        <h2>📢 結果発表</h2>
+        <div id="result-main" class="result-main"></div>
+        <h3>全カード公開</h3>
+        <div id="result-reveal"></div>
+        <h3>投票内訳</h3>
+        <ul id="result-votes" class="log-list"></ul>
+        <h3>ポイント</h3>
+        <table id="result-scores" class="score-table"></table>
+        <div class="button-row">
+          <button id="btn-next-game" class="primary hidden">もう一戦（得点持ち越し）</button>
+        </div>
+        <p id="result-msg" class="status-msg"></p>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- 自分のカード表示（ゲーム中は常時表示） -->
+  <div id="my-card-bar" class="hidden">
+    あなたのカード: <strong id="my-card-name">?</strong>
+  </div>
+
+  <!-- チャット -->
+  <div id="chat-panel" class="hidden">
+    <div id="chat-log"></div>
+    <form id="chat-form">
+      <input type="text" id="chat-input" maxlength="100" placeholder="チャット…" autocomplete="off">
+      <button type="submit">送信</button>
+    </form>
+  </div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

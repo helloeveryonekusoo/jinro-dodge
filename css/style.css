@@ -1,0 +1,237 @@
+/* 人狼ドッチ スタイル */
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", sans-serif;
+  background: #1b1e2b;
+  color: #eceff4;
+  min-height: 100vh;
+  padding-bottom: 180px; /* チャット分の余白 */
+}
+
+#app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  background: #12141d;
+  border-bottom: 2px solid #3b4261;
+}
+#app-header h1 { margin: 0; font-size: 1.3rem; }
+#room-info { font-size: 0.95rem; color: #a9b1d6; }
+
+main#app { max-width: 720px; margin: 0 auto; padding: 16px; }
+
+.screen { display: flex; flex-direction: column; gap: 16px; }
+.hidden { display: none !important; }
+
+.card-panel {
+  background: #24283b;
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+}
+.card-panel h2 { margin-top: 0; }
+
+label { display: block; margin: 12px 0 4px; color: #a9b1d6; }
+input[type="text"] {
+  width: 100%;
+  padding: 10px;
+  font-size: 1.1rem;
+  border-radius: 8px;
+  border: 1px solid #3b4261;
+  background: #1b1e2b;
+  color: #eceff4;
+  margin-top: 4px;
+}
+
+.button-row { margin-top: 16px; display: flex; gap: 10px; flex-wrap: wrap; }
+button {
+  padding: 12px 20px;
+  font-size: 1rem;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  background: #3b4261;
+  color: #eceff4;
+}
+button.primary { background: #7aa2f7; color: #12141d; font-weight: bold; }
+button.secondary { background: #e0af68; color: #12141d; font-weight: bold; }
+button:hover { filter: brightness(1.15); }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.error-msg { color: #f7768e; min-height: 1.2em; }
+.status-msg { color: #9ece6a; min-height: 1.2em; }
+
+.big-code {
+  font-size: 2rem;
+  letter-spacing: 0.3em;
+  color: #e0af68;
+}
+
+.player-list { list-style: none; padding: 0; }
+.player-list li {
+  padding: 8px 12px;
+  margin: 4px 0;
+  background: #1b1e2b;
+  border-radius: 8px;
+  display: flex;
+  justify-content: space-between;
+}
+.player-list .host-mark { color: #e0af68; }
+
+.role-list { list-style: none; padding: 0; font-size: 0.9rem; }
+.role-list li { padding: 6px 0; border-bottom: 1px solid #3b4261; }
+.role-list .role-name { font-weight: bold; }
+.role-list .team-市民 { color: #9ece6a; }
+.role-list .team-人狼 { color: #f7768e; }
+.role-list .team-おばけ { color: #bb9af7; }
+
+/* 役職カード */
+.card-row { display: flex; gap: 12px; flex-wrap: wrap; margin: 16px 0; }
+.role-card {
+  flex: 1 1 140px;
+  max-width: 200px;
+  background: #1b1e2b;
+  border: 2px solid #3b4261;
+  border-radius: 12px;
+  padding: 16px;
+  text-align: center;
+  cursor: pointer;
+  transition: transform 0.1s, border-color 0.1s;
+}
+.role-card:hover { transform: translateY(-4px); border-color: #7aa2f7; }
+.role-card.selected { border-color: #e0af68; background: #2d2a1f; }
+.role-card .role-title { font-size: 1.3rem; font-weight: bold; margin-bottom: 6px; }
+.role-card .role-team { font-size: 0.85rem; margin-bottom: 8px; }
+.role-card .role-desc { font-size: 0.8rem; color: #a9b1d6; }
+.role-card.team-市民 .role-title { color: #9ece6a; }
+.role-card.team-人狼 .role-title { color: #f7768e; }
+.role-card.team-おばけ .role-title { color: #bb9af7; }
+
+/* 対象選択ボタン */
+.target-btn {
+  display: block;
+  width: 100%;
+  margin: 6px 0;
+  text-align: left;
+}
+button.selected { outline: 3px solid #e0af68; }
+
+/* 陣営カラー（汎用） */
+.team-市民 { --team-color: #9ece6a; }
+.team-人狼 { --team-color: #f7768e; }
+.team-おばけ { --team-color: #bb9af7; }
+.result-main .winner.team-市民 { color: #9ece6a; }
+.result-main .winner.team-人狼 { color: #f7768e; }
+.result-main .winner.team-おばけ { color: #bb9af7; }
+
+.info-box {
+  background: #1b1e2b;
+  border-left: 4px solid #7aa2f7;
+  padding: 12px;
+  margin: 12px 0;
+  border-radius: 0 8px 8px 0;
+}
+
+.timer {
+  font-size: 3rem;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  color: #e0af68;
+  margin: 12px 0;
+}
+.timer.warning { color: #f7768e; }
+
+.step-label { font-size: 1.2rem; font-weight: bold; color: #e0af68; }
+
+.log-list { list-style: none; padding: 0; font-size: 0.9rem; }
+.log-list li { padding: 6px 10px; margin: 3px 0; background: #1b1e2b; border-radius: 6px; }
+
+.result-main {
+  text-align: center;
+  font-size: 1.2rem;
+  padding: 16px;
+  background: #1b1e2b;
+  border-radius: 12px;
+  margin-bottom: 16px;
+}
+.result-main .winner { font-size: 1.6rem; font-weight: bold; }
+
+.reveal-grid { display: flex; flex-direction: column; gap: 8px; }
+.reveal-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #1b1e2b;
+  padding: 8px 12px;
+  border-radius: 8px;
+  flex-wrap: wrap;
+}
+.reveal-row .p-name { min-width: 90px; font-weight: bold; }
+.mini-card {
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  border: 1px solid #3b4261;
+}
+.mini-card.team-市民 { color: #9ece6a; }
+.mini-card.team-人狼 { color: #f7768e; }
+.mini-card.team-おばけ { color: #bb9af7; }
+.mini-card.field { opacity: 0.7; }
+.exiled-mark { color: #f7768e; font-weight: bold; }
+
+.score-table { width: 100%; border-collapse: collapse; }
+.score-table td, .score-table th {
+  padding: 8px;
+  border-bottom: 1px solid #3b4261;
+  text-align: left;
+}
+.score-table .delta-plus { color: #9ece6a; }
+.score-table .delta-minus { color: #f7768e; }
+
+/* 自分のカードバー */
+#my-card-bar {
+  position: fixed;
+  top: 8px;
+  right: 12px;
+  background: #e0af68;
+  color: #12141d;
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-size: 0.9rem;
+  z-index: 10;
+}
+
+/* チャット */
+#chat-panel {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: #12141d;
+  border-top: 2px solid #3b4261;
+  padding: 8px 12px;
+  z-index: 20;
+}
+#chat-log {
+  height: 90px;
+  overflow-y: auto;
+  font-size: 0.85rem;
+  margin-bottom: 6px;
+}
+#chat-log .chat-line { margin: 2px 0; }
+#chat-log .chat-name { color: #7aa2f7; font-weight: bold; }
+#chat-log .chat-system { color: #e0af68; font-style: italic; }
+#chat-form { display: flex; gap: 8px; }
+#chat-form input { flex: 1; padding: 8px; font-size: 1rem; }
+#chat-form button { padding: 8px 16px; }
+
+.rules-summary ol { padding-left: 20px; }
+.rules-summary li { margin: 6px 0; }
+
+@media (max-width: 480px) {
+  .role-card { flex: 1 1 100%; max-width: none; }
+  .timer { font-size: 2.2rem; }
+}

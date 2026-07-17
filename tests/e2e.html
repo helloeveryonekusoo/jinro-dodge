@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head><meta charset="UTF-8"><title>人狼ドッチ E2Eテスト</title>
+<style>iframe { width: 32%; height: 400px; }</style>
+</head>
+<body>
+<pre id="out"></pre>
+<iframe id="f0" src="../index.html"></iframe>
+<iframe id="f1" src="../index.html"></iframe>
+<iframe id="f2" src="../index.html"></iframe>
+<script>
+// 3つのiframeで ホスト+2クライアント を実際のPeerJS通信込みで自動プレイする。
+// 進捗はローカルサーバのアクセスログに GET /E2E-xxx として記録される。
+const out = document.getElementById('out');
+const report = (msg) => {
+  out.textContent += msg + '\n';
+  fetch('/E2E-' + encodeURIComponent(msg)).catch(() => {});
+};
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+const win = (i) => document.getElementById('f' + i).contentWindow;
+const doc = (i) => win(i).document;
+const vis = (el) => el && !el.classList.contains('hidden');
+
+const reported = new Set();
+const once = (key, msg) => { if (!reported.has(key)) { reported.add(key); report(msg); } };
+
+async function main() {
+  await sleep(2000); // iframe読み込み待ち
+
+  for (let i = 0; i < 3; i++) {
+    win(i).onerror = (m) => report(`JSERROR-f${i}-${m}`);
+  }
+
+  // ホストが部屋を作る
+  doc(0).getElementById('input-name').value = 'ホスト';
+  doc(0).getElementById('btn-create').click();
+  report('step1-create-clicked');
+
+  // ルームコードが出るまで待つ
+  let code = '';
+  for (let t = 0; t < 50; t++) {
+    code = doc(0).getElementById('room-code-display').textContent.trim();
+    if (code) break;
+    await sleep(400);
+  }
+  if (!code) { report('TESTRESULT-FAIL-no-room-code'); return; }
+  report('step2-room-code-' + code);
+
+  // クライアント2人が参加
+  for (const i of [1, 2]) {
+    doc(i).getElementById('input-name').value = 'テスト' + i;
+    doc(i).getElementById('input-code').value = code;
+    doc(i).getElementById('btn-join').click();
+    await sleep(1500);
+  }
+  report('step3-clients-joined');
+
+  const states = ['', '', ''];
+  let resultText = '';
+
+  // 各フレームの自動プレイヤー（状態機械）
+  const tick = (i) => {
+    const d = doc(i);
+    const screens = ['home', 'lobby', 'pick', 'dawn', 'day', 'afternoon', 'evening', 'vote', 'result'];
+    const scr = screens.find(s => vis(d.getElementById('screen-' + s)));
+    if (scr && scr !== states[i]) { states[i] = scr; once(`scr-${i}-${scr}`, `f${i}-screen-${scr}`); }
+
+    switch (scr) {
+      case 'lobby': {
+        if (i === 0) {
+          const btn = d.getElementById('btn-start');
+          const count = d.getElementById('lobby-count').textContent;
+          if (vis(btn) && !btn.disabled && count === '3') btn.click();
+        }
+        break;
+      }
+      case 'pick': {
+        const row = d.getElementById('pick-cards');
+        if (!row.querySelector('.selected')) {
+          const card = row.querySelector('.role-card');
+          if (card) card.click();
+        }
+        break;
+      }
+      case 'dawn': {
+        const act = d.getElementById('dawn-action');
+        const targets = act.querySelectorAll('.target-btn');
+        if (targets.length > 0) {
+          targets[0].click();
+          const go = act.querySelector('.button-row .primary');
+          if (go) go.click();
+        } else {
+          const rb = d.getElementById('btn-dawn-ready');
+          if (vis(rb) && !rb.disabled) rb.click();
+        }
+        break;
+      }
+      case 'day': {
+        if (i === 0) {
+          const btn = d.getElementById('btn-end-day');
+          if (vis(btn)) btn.click();
+        }
+        break;
+      }
+      case 'afternoon': {
+        const box = d.getElementById('afternoon-action');
+        const targets = box.querySelectorAll('.target-btn');
+        if (targets.length > 0) {
+          targets[0].click();
+          const go = Array.from(box.querySelectorAll('button')).find(b => b.textContent === '実行する');
+          if (go) go.click();
+        }
+        break;
+      }
+      case 'evening': {
+        if (i === 0) {
+          const btn = d.getElementById('btn-end-evening');
+          if (vis(btn)) btn.click();
+        }
+        break;
+      }
+      case 'vote': {
+        const box = d.getElementById('vote-candidates');
+        if (!box.querySelector('.selected')) {
+          const t = box.querySelector('.target-btn');
+          if (t) t.click();
+        }
+        break;
+      }
+      case 'result': {
+        if (i === 0 && !resultText) {
+          resultText = d.getElementById('result-main').textContent.replace(/\s+/g, ' ').trim();
+        }
+        break;
+      }
+    }
+  };
+
+  // 最大60秒間、全フレームを駆動
+  for (let t = 0; t < 120; t++) {
+    for (let i = 0; i < 3; i++) {
+      try { tick(i); } catch (e) { once('tickerr' + i, `TICKERROR-f${i}-${e.message}`); }
+    }
+    if (states.every(s => s === 'result')) {
+      report('TESTRESULT-SUCCESS-' + resultText);
+      return;
+    }
+    await sleep(500);
+  }
+  report('TESTRESULT-TIMEOUT-states-' + states.join(','));
+}
+main();
+</script>
+</body>
+</html>
