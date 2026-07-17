@@ -29,15 +29,24 @@ function beep(freq, startAfterSec, durationSec, volume = 0.25) {
   osc.stop(t + durationSec + 0.05);
 }
 
-/** フェーズ切り替えのチャイム（ピンポン） */
+// バイブレーション（Android等の対応端末のみ。iOSは非対応のため音のみ）
+function vibrate(pattern) {
+  if (navigator.vibrate) {
+    try { navigator.vibrate(pattern); } catch { /* 無視 */ }
+  }
+}
+
+/** フェーズ切り替えのチャイム（ピンポン）＋バイブ */
 export function playChime() {
+  vibrate([200, 100, 200]);
   if (!ctx || ctx.state !== 'running') return;
   beep(880, 0, 0.25);
   beep(660, 0.2, 0.4);
 }
 
-/** 投票開始の強調チャイム（3音上昇） */
+/** 投票開始の強調チャイム（3音上昇）＋長めのバイブ */
 export function playVoteChime() {
+  vibrate([150, 80, 150, 80, 400]);
   if (!ctx || ctx.state !== 'running') return;
   beep(660, 0, 0.2);
   beep(880, 0.18, 0.2);
