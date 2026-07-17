@@ -105,7 +105,6 @@ export class HostNet {
     switch (msg.type) {
       case C2H.PICK: e.handlePick(playerId, msg.index); break;
       case C2H.DAWN_ACT: e.handleDawnAct(playerId, msg); break;
-      case C2H.READY: e.handleReady(playerId); break;
       case C2H.AFT_ACT: e.handleAftAct(playerId, msg); break;
       case C2H.VOTE: e.handleVote(playerId, msg.targetId); break;
       case C2H.CHAT: {

@@ -83,15 +83,13 @@ async function main() {
         break;
       }
       case 'dawn': {
+        // 占い師: カードボードから相手の使用カードを選んで占う（他は待つだけ）
         const act = d.getElementById('dawn-action');
-        const targets = act.querySelectorAll('.target-btn');
-        if (targets.length > 0) {
-          targets[0].click();
+        const sel = act.querySelector('.board-card.selectable');
+        if (sel) {
+          sel.click();
           const go = act.querySelector('.button-row .primary');
           if (go) go.click();
-        } else {
-          const rb = d.getElementById('btn-dawn-ready');
-          if (vis(rb) && !rb.disabled) rb.click();
         }
         break;
       }
@@ -103,10 +101,11 @@ async function main() {
         break;
       }
       case 'afternoon': {
+        // 実行者: カードボードからカードを選んで実行（15秒の自動進行を待つ）
         const box = d.getElementById('afternoon-action');
-        const targets = box.querySelectorAll('.target-btn');
-        if (targets.length > 0) {
-          targets[0].click();
+        const sel = box.querySelector('.board-card.selectable');
+        if (sel) {
+          sel.click();
           const go = Array.from(box.querySelectorAll('button')).find(b => b.textContent === '実行する');
           if (go) go.click();
         }
@@ -136,8 +135,8 @@ async function main() {
     }
   };
 
-  // 最大60秒間、全フレームを駆動
-  for (let t = 0; t < 120; t++) {
+  // 最大2分間、全フレームを駆動（明け方15秒＋昼過ぎ各15秒の固定時間があるため）
+  for (let t = 0; t < 240; t++) {
     for (let i = 0; i < 3; i++) {
       try { tick(i); } catch (e) { once('tickerr' + i, `TICKERROR-f${i}-${e.message}`); }
     }

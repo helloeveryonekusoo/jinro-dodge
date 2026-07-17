@@ -30,19 +30,20 @@ function chooseIdx(hand, preferId) {
 const other = (e, p) => e.players.find(q => q.id !== p.id).id;
 
 function runAfternoon(e) {
+  // 本番は各ステップ15秒の自動進行。テストでは待たずに手動で進める
   let guard = 0;
   while (e.phase === 'afternoon' && guard++ < 30) {
     const step = e.steps[e.stepIndex];
     const actors = e.stepActors(step).filter(a => a.connected && !step.doneIds.has(a.id));
-    if (actors.length === 0) { log('ERROR: afternoon stuck'); return false; }
     for (const a of actors) {
       e.handleAftAct(a.id, { targetId: other(e, a), fieldIndex: 0 });
     }
+    e.nextStep();
   }
   return true;
 }
 
-function playGame(roles, n, { seerSkip = false, tie = false } = {}) {
+function playGame(roles, n, { seerSkip = false, tie = false, nobody = false } = {}) {
   const inbox = {};
   const names = Array.from({ length: n }, (_, i) => 'P' + i);
   const e = makeEngine(roles, names, inbox);
@@ -54,7 +55,7 @@ function playGame(roles, n, { seerSkip = false, tie = false } = {}) {
   for (const p of e.players) e.handlePick(p.id, chooseIdx(p.hand, seerSkip ? 'seer' : null));
   assert(e.phase === 'dawn', `${n}人戦: 明け方に移行`);
 
-  // 明け方アクション（占い師）
+  // 明け方アクション（占い師）— 15秒待たず手動で昼へ進める
   for (const p of e.players) {
     const r = p.used;
     if (r.phase === '明け方' && r.action !== 'none' && r.action !== 'mate_check') {
@@ -62,15 +63,15 @@ function playGame(roles, n, { seerSkip = false, tie = false } = {}) {
       else e.handleDawnAct(p.id, { targetId: other(e, p) });
     }
   }
-  for (const p of e.players) e.handleReady(p.id);
+  e.startDay();
   assert(e.phase === 'day', `${n}人戦: 昼に移行`);
   e.endDay();
   assert(e.phase === 'afternoon' || e.phase === 'evening', `${n}人戦: 昼過ぎに移行`);
 
-  if (seerSkip) {
-    const hasSeerStep = e.steps.some(s => s.role.id === 'seer' && s.onlySkipped);
-    assert(hasSeerStep, `${n}人戦: 占い延期→昼過ぎ手順の先頭に占い師`);
-    if (hasSeerStep) assert(e.steps[0].role.id === 'seer', `${n}人戦: 手順1番目が占い師`);
+  if (e.smallGame) {
+    // 少人数戦では占い延期の有無に関係なく、占い師ステップが常に先頭にある（延期を隠すため）
+    assert(e.steps.length > 0 && e.steps[0].role.id === 'seer' && e.steps[0].onlySkipped,
+      `${n}人戦: 昼過ぎ手順の先頭が占い師（常設）`);
   }
   if (!runAfternoon(e)) return;
   assert(e.phase === 'evening', `${n}人戦: 夕方に移行`);
@@ -93,6 +94,9 @@ function playGame(roles, n, { seerSkip = false, tie = false } = {}) {
         else e.handleVote(p.id, e.voteCandidates.find(c => c !== p.id));
       }
     }
+  } else if (nobody) {
+    // 全員が「人狼はいない」に投票
+    for (const p of e.players) e.handleVote(p.id, 'NOBODY');
   } else {
     for (const p of e.players) e.handleVote(p.id, p.id === 'p0' ? 'p1' : 'p0');
   }
@@ -101,11 +105,23 @@ function playGame(roles, n, { seerSkip = false, tie = false } = {}) {
   const result = (inbox['p0'] || []).filter(m => m.type === 'result').pop();
   assert(!!result, `${n}人戦: 結果メッセージを受信`);
   if (result) {
-    log(`  → ${result.winnerLabel} 追放: ${result.exiled.name}(${result.exiled.card.name})`);
+    const exiledLabel = result.exiled ? `${result.exiled.name}(${result.exiled.card.name})` : '追放なし';
+    log(`  → ${result.winnerLabel} 追放: ${exiledLabel}`);
     log(`  → 得点: ${result.scores.map(s => `${s.name}:${s.delta > 0 ? '+' : ''}${s.delta}(計${s.total})`).join(' ')}`);
     const deltaOk = result.scores.every(s => typeof s.delta === 'number' && typeof s.total === 'number');
     assert(deltaOk, `${n}人戦: 得点計算が数値`);
+    if (nobody) {
+      assert(result.exiled === null, `${n}人戦: 「人狼はいない」→追放者なし`);
+      assert(result.winnerTeam === '市民' || result.winnerTeam === '人狼',
+        `${n}人戦: 「人狼はいない」の勝敗判定 (${result.winnerLabel})`);
+    }
   }
+
+  // 非公開性: 役職アクションがログに一切残っていないこと
+  const roleNames = roles.map(r => r.name);
+  const leakLogs = Object.values(inbox).flat()
+    .filter(m => m.type === 'log' && roleNames.some(rn => (m.text || '').includes(rn)));
+  assert(leakLogs.length === 0, `${n}人戦: 役職アクションがログに残らない`);
 
   // カード情報の隠蔽: 他人宛メッセージに自分以外の手札が平文で入っていないか（roleの内部オブジェクト漏れ検査）
   const leak = Object.values(inbox).flat().some(m => JSON.stringify(m).includes('"counts"'));
@@ -127,6 +143,7 @@ try {
   playGame(roles, 3, { seerSkip: true });    // 少人数戦 + 占い延期
   playGame(roles, 4, { tie: true });         // 決選投票
   playGame(roles, 8);                        // 最大人数
+  playGame(roles, 5, { nobody: true });      // 「人狼はいない」投票
 
   // DJ交換の検証: swapで使用カードが入れ替わるか
   {
@@ -140,15 +157,16 @@ try {
         e.handleDawnAct(p.id, { targetId: other(e, p) });
       }
     }
-    for (const p of e.players) e.handleReady(p.id);
+    e.startDay();
     e.endDay();
     const dj = e.players.find(p => p.used.id === 'dj');
     if (dj) {
-      // DJのステップまで進める
+      // DJのステップまで手動で進める
       let guard = 0;
       while (e.phase === 'afternoon' && e.steps[e.stepIndex].role.id !== 'dj' && guard++ < 10) {
         const step = e.steps[e.stepIndex];
         for (const a of e.stepActors(step)) e.handleAftAct(a.id, { targetId: other(e, a), fieldIndex: 0 });
+        e.nextStep();
       }
       if (e.phase === 'afternoon' && e.steps[e.stepIndex].role.id === 'dj') {
         const target = e.players.find(q => q.id !== dj.id);

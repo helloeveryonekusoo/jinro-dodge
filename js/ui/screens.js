@@ -29,6 +29,72 @@ function roleCardEl(card, mini = false) {
   return el;
 }
 
+/** カード裏面の要素 */
+function cardBackEl(label) {
+  const el = document.createElement('div');
+  el.className = 'board-card';
+  const mark = document.createElement('div');
+  mark.className = 'back-mark';
+  mark.textContent = '🐺';
+  el.appendChild(mark);
+  const lb = document.createElement('div');
+  lb.textContent = label;
+  el.appendChild(lb);
+  return el;
+}
+
+/**
+ * 全プレイヤーのカードを並べて直接クリックで選べるボードを描画する。
+ * mode: 'used'（使用カードを選ぶ） | 'field'（伏せカード1枚を選ぶ） | 'field-all'（伏せカードをまとめて選ぶ）
+ * @returns {Function} 現在の選択 {targetId, fieldIndex} を返す関数
+ */
+function renderCardBoard(container, targets, mode, fieldCount) {
+  let selection = null;
+  const board = document.createElement('div');
+  board.className = 'card-board';
+  const clearSel = () =>
+    board.querySelectorAll('.board-card.selected').forEach(el => el.classList.remove('selected'));
+
+  for (const t of targets) {
+    const col = document.createElement('div');
+    col.className = 'board-col';
+    const nm = document.createElement('div');
+    nm.className = 'board-name';
+    nm.textContent = t.name;
+    col.appendChild(nm);
+
+    const usedEl = cardBackEl('使用中');
+    if (mode === 'used') {
+      usedEl.classList.add('selectable');
+      usedEl.addEventListener('click', () => {
+        clearSel();
+        usedEl.classList.add('selected');
+        selection = { targetId: t.id, fieldIndex: 0 };
+      });
+    }
+    col.appendChild(usedEl);
+
+    const fieldEls = [];
+    for (let i = 0; i < fieldCount; i++) {
+      const fEl = cardBackEl(fieldCount > 1 ? `伏せ${i + 1}` : '伏せ');
+      if (mode === 'field' || mode === 'field-all') {
+        fEl.classList.add('selectable');
+        fEl.addEventListener('click', () => {
+          clearSel();
+          if (mode === 'field-all') fieldEls.forEach(el => el.classList.add('selected'));
+          else fEl.classList.add('selected');
+          selection = { targetId: t.id, fieldIndex: i };
+        });
+      }
+      fieldEls.push(fEl);
+      col.appendChild(fEl);
+    }
+    board.appendChild(col);
+  }
+  container.appendChild(board);
+  return () => selection;
+}
+
 // ---------- ヘッダ・共通 ----------
 
 export function setRoomCode(code) {
@@ -118,63 +184,42 @@ export function setPickWaiting(done, total) {
   $('pick-msg').textContent = `カード選択中… (${done}/${total})`;
 }
 
-// ---------- 明け方 ----------
+// ---------- 明け方（15秒固定） ----------
 
-export function renderDawn(msg, { onAct, onReady }) {
+export function renderDawn(msg, { onAct }) {
   showScreen('dawn');
   $('dawn-msg').textContent = '';
   $('dawn-action').innerHTML = '';
   $('dawn-info').innerHTML = '';
-  // 前ゲームの状態をリセット
-  $('btn-dawn-ready').classList.add('hidden');
-  $('btn-dawn-ready').disabled = false;
 
   const mycard = $('dawn-mycard');
   mycard.innerHTML = '<p>あなたの使用カード:</p>';
   mycard.appendChild(roleCardEl(msg.you));
-
-  const readyBtn = $('btn-dawn-ready');
-  const showReady = () => {
-    readyBtn.classList.remove('hidden');
-    readyBtn.disabled = false;
-  };
 
   if (msg.mates !== undefined) {
     // 人狼: 仲間確認
     $('dawn-info').textContent = msg.mates.length > 0
       ? `🐺 仲間の人狼: ${msg.mates.join('、')}`
       : '🐺 仲間の人狼はいません。あなたは一匹狼です。';
-    showReady();
   } else if (msg.action) {
-    // 占い師など: 対象選択
+    // 占い師など: 相手の使用カードを直接クリックして選ぶ
     const box = $('dawn-action');
     const p = document.createElement('p');
-    p.textContent = '占う相手を選んでください:';
+    p.textContent = '占う相手の「使用中」カードをタップして選んでください（15秒以内）:';
     box.appendChild(p);
 
-    let selected = null;
-    const btns = [];
-    for (const t of msg.action.targets) {
-      const btn = document.createElement('button');
-      btn.className = 'target-btn';
-      btn.textContent = t.name;
-      btn.addEventListener('click', () => {
-        selected = t.id;
-        btns.forEach(b => b.classList.remove('selected'));
-        btn.classList.add('selected');
-      });
-      btns.push(btn);
-      box.appendChild(btn);
-    }
+    const getSel = renderCardBoard(box, msg.action.targets, 'used', msg.fieldCount);
+
     const row = document.createElement('div');
     row.className = 'button-row';
     const go = document.createElement('button');
     go.className = 'primary';
     go.textContent = '占う';
     go.addEventListener('click', () => {
-      if (!selected) { $('dawn-msg').textContent = '相手を選んでください'; return; }
+      const sel = getSel();
+      if (!sel) { $('dawn-msg').textContent = 'カードを選んでください'; return; }
       box.innerHTML = '';
-      onAct({ targetId: selected });
+      onAct({ targetId: sel.targetId });
     });
     row.appendChild(go);
     if (msg.action.canSkip) {
@@ -188,15 +233,8 @@ export function renderDawn(msg, { onAct, onReady }) {
     }
     box.appendChild(row);
   } else {
-    $('dawn-info').textContent = '特別なアクションはありません。静かに朝を待ちましょう…';
-    showReady();
+    $('dawn-info').textContent = '特別なアクションはありません。自分のカードを確認しておきましょう…';
   }
-
-  readyBtn.onclick = () => {
-    readyBtn.disabled = true;
-    $('dawn-msg').textContent = '他のプレイヤーを待っています…';
-    onReady();
-  };
 }
 
 export function showDawnResult(msg) {
@@ -208,20 +246,9 @@ export function showDawnResult(msg) {
     info.appendChild(document.createTextNode(`🔮 ${msg.targetName}さんの使用カードは… `));
     info.appendChild(roleCardEl(msg.card, true));
   }
-  const readyBtn = $('btn-dawn-ready');
-  readyBtn.classList.remove('hidden');
-  readyBtn.disabled = false;
 }
 
-export function setDawnWaiting(done, total) {
-  $('dawn-msg').textContent = `準備完了を待っています… (${done}/${total})`;
-}
-
-// ---------- 昼過ぎ ----------
-
-export function clearAfternoonLog() {
-  $('afternoon-log').innerHTML = '';
-}
+// ---------- 昼過ぎ（各15秒固定・非公開） ----------
 
 export function renderAfternoon(msg, onAct) {
   showScreen('afternoon');
@@ -232,58 +259,25 @@ export function renderAfternoon(msg, onAct) {
 
   if (!msg.isActor) {
     const p = document.createElement('p');
-    p.textContent = `${msg.stepRoleName}のアクションを待っています…`;
+    p.textContent = `${msg.stepRoleName}のアクション時間です。そのままお待ちください…`;
     box.appendChild(p);
     return;
   }
 
   const label = {
-    peek_used: '占う相手を選んでください:',
-    peek_field: '伏せカードを確認する相手を選んでください:',
-    swap: 'カードを交換する相手を選んでください:',
-  }[msg.actionType] || '対象を選んでください:';
+    peek_used: '占う相手の「使用中」カードをタップしてください:',
+    peek_field: '確認したい「伏せ」カードをタップしてください:',
+    swap: '交換したい「伏せ」カードをタップしてください（その人の使用カードと入れ替わります）:',
+  }[msg.actionType] || '対象のカードをタップしてください:';
   const p = document.createElement('p');
   p.textContent = `あなたは${msg.stepRoleName}です。${label}`;
   box.appendChild(p);
 
-  let selected = null;
-  const btns = [];
-  for (const t of msg.targets) {
-    const btn = document.createElement('button');
-    btn.className = 'target-btn';
-    btn.textContent = t.name;
-    btn.addEventListener('click', () => {
-      selected = t.id;
-      btns.forEach(b => b.classList.remove('selected'));
-      btn.classList.add('selected');
-    });
-    btns.push(btn);
-    box.appendChild(btn);
-  }
-
-  // DJ かつ少人数戦: どちらの伏せカードと交換するか選ぶ
-  let fieldIndex = 0;
-  if (msg.actionType === 'swap' && msg.fieldCount > 1) {
-    const fp = document.createElement('p');
-    fp.textContent = 'どちらの伏せカードと交換しますか？（中身は見えません）';
-    box.appendChild(fp);
-    const frow = document.createElement('div');
-    frow.className = 'button-row';
-    const fbtns = [];
-    for (let i = 0; i < msg.fieldCount; i++) {
-      const fb = document.createElement('button');
-      fb.textContent = `伏せカード${i + 1}枚目`;
-      if (i === 0) fb.classList.add('selected');
-      fb.addEventListener('click', () => {
-        fieldIndex = i;
-        fbtns.forEach(b => b.classList.remove('selected'));
-        fb.classList.add('selected');
-      });
-      fbtns.push(fb);
-      frow.appendChild(fb);
-    }
-    box.appendChild(frow);
-  }
+  // アクションに応じてクリックできるカードを変える
+  const mode = msg.actionType === 'peek_used' ? 'used'
+    : (msg.actionType === 'peek_field' && msg.smallGame) ? 'field-all'
+    : 'field';
+  const getSel = renderCardBoard(box, msg.targets, mode, msg.fieldCount);
 
   const row = document.createElement('div');
   row.className = 'button-row';
@@ -291,9 +285,10 @@ export function renderAfternoon(msg, onAct) {
   go.className = 'primary';
   go.textContent = '実行する';
   go.addEventListener('click', () => {
-    if (!selected) return;
+    const sel = getSel();
+    if (!sel) return;
     box.innerHTML = '<p>実行しました。</p>';
-    onAct({ targetId: selected, fieldIndex });
+    onAct({ targetId: sel.targetId, fieldIndex: sel.fieldIndex });
   });
   row.appendChild(go);
   if (msg.optional) {
@@ -319,12 +314,6 @@ export function showAfternoonResult(msg) {
   }
 }
 
-export function addAfternoonLog(text) {
-  const li = document.createElement('li');
-  li.textContent = text;
-  $('afternoon-log').appendChild(li);
-}
-
 // ---------- 投票 ----------
 
 export function renderVote(msg, selfId, onVote) {
@@ -340,12 +329,19 @@ export function renderVote(msg, selfId, onVote) {
     if (c.id === selfId) continue;
     const btn = document.createElement('button');
     btn.className = 'target-btn';
-    btn.textContent = c.name;
+    if (c.id === 'NOBODY') {
+      btn.classList.add('nobody');
+      btn.textContent = `🕊 ${c.name}（誰も追放しない）`;
+    } else {
+      btn.textContent = c.name;
+    }
     btn.addEventListener('click', () => {
       if (voted) return;
       voted = true;
       btn.classList.add('selected');
-      $('vote-msg').textContent = `${c.name}さんに投票しました。他のプレイヤーを待っています…`;
+      $('vote-msg').textContent = c.id === 'NOBODY'
+        ? '「人狼はいない」に投票しました。他のプレイヤーを待っています…'
+        : `${c.name}さんに投票しました。他のプレイヤーを待っています…`;
       onVote(c.id);
     });
     box.appendChild(btn);
@@ -364,8 +360,12 @@ export function renderResult(msg, isHost) {
   const main = $('result-main');
   main.innerHTML = '';
   const exiledP = document.createElement('p');
-  exiledP.append(`追放されたのは ${msg.exiled.name} さん — `);
-  exiledP.appendChild(roleCardEl(msg.exiled.card, true));
+  if (msg.exiled) {
+    exiledP.append(`追放されたのは ${msg.exiled.name} さん — `);
+    exiledP.appendChild(roleCardEl(msg.exiled.card, true));
+  } else {
+    exiledP.textContent = '投票の結果「人狼はいない」が選ばれ、誰も追放されませんでした。';
+  }
   main.appendChild(exiledP);
   const winner = document.createElement('p');
   winner.className = `winner team-${msg.winnerTeam}`;
@@ -424,6 +424,62 @@ export function renderResult(msg, isHost) {
   } else {
     $('result-msg').textContent = 'ホストが次のゲームを開始するのを待っています…';
   }
+}
+
+// ---------- 配られたカードの常時表示＋メモ ----------
+
+let hand = { slots: null, usedIndex: -1 };
+
+/** カード選択後、配られた全カードを画面に残す（メモ欄付き） */
+export function renderHandPanel(cards, usedIndex) {
+  hand = { slots: [], usedIndex };
+  $('hand-panel').classList.remove('hidden');
+  const box = $('hand-cards');
+  box.innerHTML = '';
+  cards.forEach((card, i) => {
+    const el = document.createElement('div');
+    el.className = 'hand-card' + (i === usedIndex ? ' used-card' : '');
+    const status = document.createElement('span');
+    status.className = 'hand-status';
+    status.textContent = i === usedIndex ? '使用中' : '伏せ';
+    const name = document.createElement('div');
+    name.className = 'hand-name';
+    const team = document.createElement('div');
+    team.className = 'hand-team';
+    const memo = document.createElement('input');
+    memo.className = 'memo';
+    memo.type = 'text';
+    memo.maxLength = 30;
+    memo.placeholder = 'メモ…';
+    el.append(status, name, team, memo);
+    box.appendChild(el);
+    hand.slots.push({ card, name, team });
+  });
+  refreshHandCards();
+}
+
+function refreshHandCards() {
+  if (!hand.slots) return;
+  for (const s of hand.slots) {
+    s.name.textContent = s.card.name;
+    s.team.textContent = `陣営: ${s.card.team}`;
+  }
+}
+
+/** DJ交換: 使用中カードと伏せカード(fieldIndex)の中身を入れ替えて表示を更新 */
+export function swapHandCards(newUsedCard, fieldIndex) {
+  if (!hand.slots) return;
+  const fieldSlots = hand.slots.filter((_, i) => i !== hand.usedIndex);
+  const fs = fieldSlots[fieldIndex];
+  const us = hand.slots[hand.usedIndex];
+  if (!fs || !us) return;
+  fs.card = us.card;
+  us.card = newUsedCard;
+  refreshHandCards();
+}
+
+export function hideHandPanel() {
+  $('hand-panel').classList.add('hidden');
 }
 
 // ---------- タイマー画面のホストボタン ----------

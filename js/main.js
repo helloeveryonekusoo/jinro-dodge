@@ -48,13 +48,16 @@ function handleMessage(msg) {
     case H2C.PICK:
       stopTimer();
       ui.hideMyCard();
-      ui.clearAfternoonLog();
-      ui.renderPick(msg, (index) => sendToHost({ type: C2H.PICK, index }));
+      ui.hideHandPanel();
+      ui.renderPick(msg, (index) => {
+        sendToHost({ type: C2H.PICK, index });
+        // 配られたカードは選択後も画面に残す（メモ欄付き）
+        ui.renderHandPanel(msg.cards, index);
+      });
       break;
 
     case H2C.WAITING:
       if (msg.what === 'pick') ui.setPickWaiting(msg.done, msg.total);
-      else if (msg.what === 'dawn') ui.setDawnWaiting(msg.done, msg.total);
       else if (msg.what === 'vote') ui.setVoteWaiting(msg.done, msg.total);
       break;
 
@@ -62,8 +65,8 @@ function handleMessage(msg) {
       ui.setMyCard(msg.you);
       ui.renderDawn(msg, {
         onAct: (act) => sendToHost({ type: C2H.DAWN_ACT, ...act }),
-        onReady: () => sendToHost({ type: C2H.READY }),
       });
+      startTimer($('dawn-timer'), msg.duration);
       break;
 
     case H2C.DAWN_RESULT:
@@ -76,8 +79,8 @@ function handleMessage(msg) {
       break;
 
     case H2C.AFTERNOON:
-      stopTimer();
       ui.renderAfternoon(msg, (act) => sendToHost({ type: C2H.AFT_ACT, ...act }));
+      startTimer($('afternoon-timer'), msg.duration);
       break;
 
     case H2C.AFT_RESULT:
@@ -86,11 +89,11 @@ function handleMessage(msg) {
 
     case H2C.YOUR_CARD:
       ui.setMyCard(msg.card);
-      addSystemMessage(`🎧 DJによってあなたの使用カードが「${msg.card.name}」に変わりました！`);
+      ui.swapHandCards(msg.card, msg.fieldIndex);
+      addSystemMessage(`🎧 DJによってあなたの使用カードが「${msg.card.name}」に変わりました！（この通知はあなたにだけ見えています）`);
       break;
 
     case H2C.LOG:
-      ui.addAfternoonLog(msg.text);
       addSystemMessage(msg.text);
       break;
 

@@ -4,11 +4,12 @@
 
 import { H2C } from '../net/protocol.js';
 import { buildDeck, deal, handSizeFor } from './deck.js';
-import { judge } from './scoring.js';
+import { judge, NOBODY } from './scoring.js';
 import { roleView, playerView } from './views.js';
 
 const DAY_SECONDS = 180;      // 昼の議論時間（約3分）
 const EVENING_SECONDS = 60;   // 夕方の最終議論時間（約1分）
+const ACTION_SECONDS = 15;    // 役職アクションの制限時間（固定・短縮不可）
 
 export class Engine {
   /**
@@ -72,10 +73,8 @@ export class Engine {
     }
     p.connected = false;
     this.log(`（${p.name}さんの接続が切れました）`);
-    // 進行が止まらないように各ゲートを再チェック
+    // 進行が止まらないように各ゲートを再チェック（明け方・昼過ぎはタイマーで自動進行する）
     if (this.phase === 'pick') this.checkAllPicked();
-    else if (this.phase === 'dawn') this.checkAllReady();
-    else if (this.phase === 'afternoon') this.checkStepDone();
     else if (this.phase === 'vote') this.checkAllVoted();
   }
 
@@ -163,20 +162,23 @@ export class Engine {
     this.startDawn();
   }
 
-  // ---------- 明け方 ----------
+  // ---------- 明け方（15秒固定・短縮不可） ----------
 
   startDawn() {
     this.phase = 'dawn';
+    const fieldCount = handSizeFor(this.players.length) - 1;
     for (const p of this.players) {
-      if (!p.connected) { p.ready = true; p.dawnActed = true; continue; }
-      const msg = { type: H2C.DAWN, you: roleView(p.used), smallGame: this.smallGame };
+      if (!p.connected) continue;
+      const msg = {
+        type: H2C.DAWN, you: roleView(p.used),
+        smallGame: this.smallGame, duration: ACTION_SECONDS, fieldCount,
+      };
       const role = p.used;
       if (role.phase === '明け方' && role.action === 'mate_check') {
         // 人狼: 仲間確認
         msg.mates = this.players
           .filter(q => q.id !== p.id && q.used.id === role.id)
           .map(q => q.name);
-        p.dawnActed = true;
       } else if (role.phase === '明け方' && role.action !== 'none') {
         // 占い師など: 対象を選ぶアクション
         msg.action = {
@@ -184,11 +186,14 @@ export class Engine {
           canSkip: this.smallGame, // ハウスルール②: 少人数戦は占いを延期できる
           targets: this.players.filter(q => q.id !== p.id).map(q => ({ id: q.id, name: q.name })),
         };
-      } else {
-        p.dawnActed = true;
       }
       this.send(p.id, msg);
     }
+    // 全員同じ15秒。誰が何をしているかタイミングからは分からない
+    clearTimeout(this.timerHandle);
+    this.timerHandle = setTimeout(() => {
+      if (this.phase === 'dawn') this.startDay();
+    }, ACTION_SECONDS * 1000);
   }
 
   handleDawnAct(id, { skip, targetId }) {
@@ -212,24 +217,6 @@ export class Engine {
     this.send(id, { type: H2C.DAWN_RESULT, targetName: target.name, card: roleView(target.used) });
   }
 
-  handleReady(id) {
-    if (this.phase !== 'dawn') return;
-    const p = this.getPlayer(id);
-    if (!p || !p.dawnActed) return; // アクション未実行のままの準備完了は無効
-    p.ready = true;
-    this.checkAllReady();
-  }
-
-  checkAllReady() {
-    const pending = this.players.filter(p => p.connected && !p.ready);
-    if (pending.length > 0) {
-      const done = this.players.length - pending.length;
-      this.broadcast({ type: H2C.WAITING, what: 'dawn', done, total: this.players.length });
-      return;
-    }
-    this.startDay();
-  }
-
   // ---------- 昼（議論） ----------
 
   startDay() {
@@ -244,19 +231,21 @@ export class Engine {
     this.startAfternoon();
   }
 
-  // ---------- 昼過ぎ（役職アクション） ----------
+  // ---------- 昼過ぎ（役職アクション・各15秒固定） ----------
+  // 役職の有無や行動タイミングがメタ情報として伝わらないよう、
+  // 該当者がいなくても全ステップを必ず15秒ずつ実施する（短縮不可）。
 
   startAfternoon() {
     if (this.phase !== 'day') return;
     this.phase = 'afternoon';
-    // 手順: 占いを延期した占い師 → 警官 → DJ（CSVの行順）
+    // 手順: （少人数戦のみ）占い師 → 警官 → DJ（CSVの行順）
     this.steps = [];
-    const skippedRoleIds = new Set(
-      this.players.filter(p => p.dawnSkipped).map(p => p.used.id)
-    );
-    for (const role of this.roles) {
-      if (role.phase === '明け方' && skippedRoleIds.has(role.id)) {
-        this.steps.push({ role, onlySkipped: true });
+    if (this.smallGame) {
+      // 占い延期の有無に関係なく毎回ステップを設ける（延期したかどうかを隠すため）
+      for (const role of this.roles) {
+        if (role.phase === '明け方' && role.action !== 'none' && role.action !== 'mate_check') {
+          this.steps.push({ role, onlySkipped: true });
+        }
       }
     }
     for (const role of this.roles) {
@@ -275,6 +264,7 @@ export class Engine {
   }
 
   nextStep() {
+    clearTimeout(this.timerHandle);
     this.stepIndex++;
     if (this.stepIndex >= this.steps.length) {
       this.startEvening();
@@ -282,21 +272,18 @@ export class Engine {
     }
     const step = this.steps[this.stepIndex];
     step.doneIds = new Set();
-    const actors = this.stepActors(step);
-    const activeActors = actors.filter(p => p.connected);
+    const actors = this.stepActors(step).filter(p => p.connected);
 
-    if (activeActors.length === 0) {
-      this.log(`${step.role.name}のアクション: 該当者はいませんでした。`);
-      this.nextStep();
-      return;
-    }
-
-    this.broadcast({ type: H2C.AFTERNOON, stepRoleName: step.role.name, isActor: false });
-    for (const actor of activeActors) {
+    this.broadcast({
+      type: H2C.AFTERNOON, stepRoleName: step.role.name,
+      isActor: false, duration: ACTION_SECONDS,
+    });
+    for (const actor of actors) {
       this.send(actor.id, {
         type: H2C.AFTERNOON,
         stepRoleName: step.role.name,
         isActor: true,
+        duration: ACTION_SECONDS,
         actionType: step.role.action,
         optional: step.role.action === 'swap', // DJのみ「しない」選択が可能
         smallGame: this.smallGame,
@@ -306,6 +293,11 @@ export class Engine {
           .map(q => ({ id: q.id, name: q.name })),
       });
     }
+    // 15秒経ったら必ず次のステップへ（実行済みでも短縮しない）
+    const idx = this.stepIndex;
+    this.timerHandle = setTimeout(() => {
+      if (this.phase === 'afternoon' && this.stepIndex === idx) this.nextStep();
+    }, ACTION_SECONDS * 1000);
   }
 
   handleAftAct(id, { pass, targetId, fieldIndex }) {
@@ -316,12 +308,11 @@ export class Engine {
     if (!p || step.doneIds.has(id)) return;
     if (!this.stepActors(step).some(a => a.id === id)) return;
 
-    const roleName = step.role.name;
+    // ※アクションの内容は一切公開しない（結果は実行者本人にのみ送る）
 
     if (pass && step.role.action === 'swap') {
       step.doneIds.add(id);
-      this.log(`${roleName}の${p.name}さんは交換しませんでした。`);
-      this.checkStepDone();
+      this.send(id, { type: H2C.AFT_RESULT, text: '交換しませんでした。' });
       return;
     }
 
@@ -336,7 +327,6 @@ export class Engine {
           text: `${target.name}さんの使用カードを確認しました。`,
           cards: [roleView(target.used)],
         });
-        this.log(`${roleName}の${p.name}さんが${target.name}さんを占いました。`);
         break;
       }
       case 'peek_field': { // 警官: 伏せカードを見る（少人数戦は2枚とも）
@@ -347,7 +337,6 @@ export class Engine {
           text: `${target.name}さんの伏せカードを確認しました。`,
           cards: cards.map(roleView),
         });
-        this.log(`${roleName}の${p.name}さんが${target.name}さんの伏せカードを確認しました。`);
         break;
       }
       case 'swap': { // DJ: 対象の伏せカードと使用カードを交換
@@ -357,26 +346,16 @@ export class Engine {
         const tmp = target.used;
         target.used = target.field[fi];
         target.field[fi] = tmp;
-        // 対象者には新しい使用カードを通知（実物のカードは手元で見られるため）
+        // 対象者には新しい使用カードを通知（実物のカードは手元で見られるのと同じ扱い）
         if (target.connected) {
-          this.send(target.id, { type: H2C.YOUR_CARD, card: roleView(target.used) });
+          this.send(target.id, { type: H2C.YOUR_CARD, card: roleView(target.used), fieldIndex: fi });
         }
         this.send(id, { type: H2C.AFT_RESULT, text: `${target.name}さんのカードを交換しました。（中身は見られません）` });
-        this.log(`${roleName}の${p.name}さんが${target.name}さんの伏せカードと使用カードを交換しました！`);
         break;
       }
       default:
         return;
     }
-    this.checkStepDone();
-  }
-
-  checkStepDone() {
-    if (this.phase !== 'afternoon') return;
-    const step = this.steps[this.stepIndex];
-    if (!step) return;
-    const remaining = this.stepActors(step).filter(p => p.connected && !step.doneIds.has(p.id));
-    if (remaining.length === 0) this.nextStep();
   }
 
   // ---------- 夕方（最終議論）→ 投票 ----------
@@ -396,11 +375,13 @@ export class Engine {
   startVote(candidates = null) {
     this.phase = 'vote';
     this.votes = {};
-    this.voteCandidates = candidates || this.players.map(p => p.id);
+    // 「人狼はいない」（誰も追放しない）も候補に含める
+    this.voteCandidates = candidates || [...this.players.map(p => p.id), NOBODY];
     this.broadcast({
       type: H2C.VOTE,
       runoff: this.isRunoff,
       candidates: this.voteCandidates.map(cid => {
+        if (cid === NOBODY) return { id: NOBODY, name: '人狼はいない' };
         const c = this.getPlayer(cid);
         return { id: c.id, name: c.name };
       }),
@@ -457,24 +438,25 @@ export class Engine {
 
   finishGame(exiledId) {
     this.phase = 'result';
-    const exiled = this.getPlayer(exiledId);
-    const { winnerTeam, winnerLabel, deltas } = judge(this.players, exiledId, this.votes);
+    const noExile = exiledId === NOBODY;
+    const exiled = noExile ? null : this.getPlayer(exiledId);
+    const { winnerTeam, winnerLabel, deltas } = judge(this.players, noExile ? null : exiledId, this.votes);
     for (const p of this.players) p.score += deltas[p.id];
 
     this.broadcast({
       type: H2C.RESULT,
-      exiled: { name: exiled.name, card: roleView(exiled.used) },
+      exiled: exiled ? { name: exiled.name, card: roleView(exiled.used) } : null,
       winnerTeam,
       winnerLabel,
       reveal: this.players.map(p => ({
         name: p.name,
-        exiled: p.id === exiledId,
+        exiled: !noExile && p.id === exiledId,
         used: roleView(p.used),
         field: p.field.map(roleView),
       })),
       votes: Object.entries(this.votes).map(([from, to]) => ({
         from: this.getPlayer(from).name,
-        to: this.getPlayer(to).name,
+        to: to === NOBODY ? '人狼はいない' : this.getPlayer(to).name,
       })),
       scores: this.players.map(p => ({
         name: p.name, delta: deltas[p.id], total: p.score,

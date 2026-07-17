@@ -93,12 +93,10 @@
     <section id="screen-dawn" class="screen hidden">
       <div class="card-panel">
         <h2>🌄 明け方フェーズ</h2>
+        <div class="timer small" id="dawn-timer">0:15</div>
         <div id="dawn-mycard"></div>
         <div id="dawn-info" class="info-box"></div>
         <div id="dawn-action"></div>
-        <div class="button-row">
-          <button id="btn-dawn-ready" class="primary hidden">準備完了</button>
-        </div>
         <p id="dawn-msg" class="status-msg"></p>
       </div>
     </section>
@@ -120,10 +118,10 @@
       <div class="card-panel">
         <h2>🕒 昼過ぎフェーズ（役職アクション）</h2>
         <p id="afternoon-step" class="step-label"></p>
+        <div class="timer small" id="afternoon-timer">0:15</div>
         <div id="afternoon-action"></div>
         <div id="afternoon-result" class="info-box hidden"></div>
-        <h3>アクションログ</h3>
-        <ul id="afternoon-log" class="log-list"></ul>
+        <p class="note">各役職のアクション時間は一律15秒です。誰が何をしたかは公開されません。</p>
       </div>
     </section>
 
@@ -172,6 +170,12 @@
   <!-- 自分のカード表示（ゲーム中は常時表示） -->
   <div id="my-card-bar" class="hidden">
     あなたのカード: <strong id="my-card-name">?</strong>
+  </div>
+
+  <!-- 配られたカードの常時表示＋メモ（ゲーム中は常時表示） -->
+  <div id="hand-panel" class="hidden">
+    <div class="hand-title">🃏 あなたに配られたカード（メモを書いて推理に使えます）</div>
+    <div id="hand-cards"></div>
   </div>
 
   <!-- チャット -->
