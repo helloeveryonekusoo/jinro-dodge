@@ -83,6 +83,16 @@ export function judge(players, exiledIds, finalVotes) {
   }
 
   applyVotePenalty(players, byId, finalVotes, deltas);
+
+  // 賞金稼ぎ(id: bounty): 自分の投票先が人狼（人狼扱いの狂人含む）なら追加+1
+  for (const [voterId, targetId] of Object.entries(finalVotes)) {
+    const voter = byId.get(voterId);
+    const target = byId.get(targetId);
+    if (voter && target && voter.used.id === 'bounty' && isWolfCard(target)) {
+      deltas[voterId] += 1;
+    }
+  }
+
   return { winnerTeam, winnerLabel, deltas };
 }
 

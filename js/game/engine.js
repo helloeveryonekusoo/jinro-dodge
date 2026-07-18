@@ -79,7 +79,8 @@ export class Engine {
 
   sendLobby() {
     const players = this.players.map(p => playerView(p, this.hostId));
-    const roleList = this.roles.map(r => roleView(r));
+    // 人数別の枚数表を表示できるように counts も含める（公開情報）
+    const roleList = this.roles.map(r => ({ ...roleView(r), counts: r.counts }));
     this.broadcast({
       type: H2C.LOBBY, players, roleList,
       canStart: this.players.length >= 3 && this.players.length <= 8,
@@ -121,12 +122,18 @@ export class Engine {
     this.votes = {};
     this.phase = 'pick';
 
+    // この人数での山札の内訳（公開情報・推理の前提になる）
+    const composition = this.roles
+      .filter(r => r.counts[count] > 0)
+      .map(r => ({ name: r.name, team: r.team, count: r.counts[count] }));
+
     for (const p of this.players) {
       this.send(p.id, {
         type: H2C.PICK,
         cards: p.hand.map(roleView),
         handSize: handSizeFor(count),
         smallGame: this.smallGame,
+        composition,
         // 全員分のカードを裏向きで表示してメモできるように、名前一覧を送る
         players: this.players.map(q => ({ id: q.id, name: q.name })),
       });
@@ -249,16 +256,19 @@ export class Engine {
   startAfternoon() {
     if (this.phase !== 'day') return;
     this.phase = 'afternoon';
-    // 手順: 占い師（延期・時間切れ分）→ 警官 → DJ（CSVの行順）
-    // 延期や時間切れの有無を隠すため、占い師のステップは毎回必ず設ける
+    // 手順: 占い師（延期・時間切れ分）→ 警官 → DJ → 名探偵（CSVの行順）
+    // 延期や時間切れの有無を隠すため、各ステップは該当者不在でも必ず15秒実施する。
+    // ただし枚数表は公開情報のため、この人数で山札に入っていない役職のステップは省略してよい。
+    const count = this.players.length;
     this.steps = [];
     for (const role of this.roles) {
-      if (role.phase === '明け方' && role.action !== 'none' && role.action !== 'mate_check') {
+      if (role.phase === '明け方' && role.action !== 'none' && role.action !== 'mate_check'
+          && role.counts[count] > 0) {
         this.steps.push({ role, onlySkipped: true });
       }
     }
     for (const role of this.roles) {
-      if (role.phase === '昼過ぎ' && role.action !== 'none') {
+      if (role.phase === '昼過ぎ' && role.action !== 'none' && role.counts[count] > 0) {
         this.steps.push({ role, onlySkipped: false });
       }
     }
@@ -335,6 +345,14 @@ export class Engine {
           type: H2C.AFT_RESULT,
           text: `${target.name}さんの使用カードを確認しました。`,
           cards: [roleView(target.used)],
+        });
+        break;
+      }
+      case 'peek_team': { // 名探偵: 対象の陣営だけを知る（役職名は分からない）
+        step.doneIds.add(id);
+        this.send(id, {
+          type: H2C.AFT_RESULT,
+          text: `🔎 ${target.name}さんの陣営は「${target.used.team}」です。`,
         });
         break;
       }

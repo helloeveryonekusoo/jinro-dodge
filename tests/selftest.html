@@ -72,6 +72,14 @@ function playGame(roles, n, { seerSkip = false, tie = false, nobody = false, nob
   // 延期・時間切れの有無に関係なく、全人数で占い師ステップが常に先頭にある
   assert(e.steps.length > 0 && e.steps[0].role.id === 'seer' && e.steps[0].onlySkipped,
     `${n}人戦: 昼過ぎ手順の先頭が占い師（常設）`);
+  // 枚数0の役職のステップは省略される（名探偵は6人以上のみ）
+  const hasDetective = e.steps.some(s => s.role.id === 'detective');
+  assert(n >= 6 ? hasDetective : !hasDetective,
+    `${n}人戦: 名探偵ステップの有無が枚数表と一致`);
+  // 山札の内訳が配布時に送られている
+  const pickMsg = (inbox['p0'] || []).find(m => m.type === 'pick');
+  assert(pickMsg && Array.isArray(pickMsg.composition) && pickMsg.composition.length > 0,
+    `${n}人戦: 山札の内訳を受信`);
   if (!runAfternoon(e)) return;
   assert(e.phase === 'evening', `${n}人戦: 夕方に移行`);
   e.endEvening();
@@ -125,8 +133,10 @@ function playGame(roles, n, { seerSkip = false, tie = false, nobody = false, nob
     .filter(m => m.type === 'log' && roleNames.some(rn => (m.text || '').includes(rn)));
   assert(leakLogs.length === 0, `${n}人戦: 役職アクションがログに残らない`);
 
-  // カード情報の隠蔽: 他人宛メッセージに自分以外の手札が平文で入っていないか（roleの内部オブジェクト漏れ検査）
-  const leak = Object.values(inbox).flat().some(m => JSON.stringify(m).includes('"counts"'));
+  // カード情報の隠蔽: roleの内部オブジェクト漏れ検査
+  // （ロビーの枚数表(counts)は公開情報なので対象外。それ以外のメッセージにcountsが漏れていないこと）
+  const leak = Object.values(inbox).flat().some(m =>
+    m.type !== 'lobby' && JSON.stringify(m).includes('"counts"'));
   assert(!leak, `${n}人戦: 役職内部データ(counts)が送信されていない`);
 
   // 連戦（得点持ち越し）
@@ -139,7 +149,7 @@ function playGame(roles, n, { seerSkip = false, tie = false, nobody = false, nob
 
 try {
   const roles = await loadRoles('../data/roles.csv');
-  assert(roles.length === 7, `roles.csv: 7役職を読み込み (実際:${roles.length})`);
+  assert(roles.length === 9, `roles.csv: 9役職を読み込み (実際:${roles.length})`);
 
   playGame(roles, 5);                            // 通常戦
   playGame(roles, 3, { seerSkip: true });        // 少人数戦 + 占い延期
@@ -205,6 +215,59 @@ try {
     r = judge(ps3, ['g', 'a'], {});
     assert(r.winnerTeam === 'おばけ' && r.deltas['g'] === 3 && r.deltas['c'] === 0 && r.deltas['a'] === 0,
       '同数でおばけ+人狼を追放→おばけが最優先で単独勝利（他陣営は無得点）');
+  }
+
+  // 賞金稼ぎの得点（judge単体テスト）
+  {
+    const W = { name: '人狼', team: '人狼', isWolf: true };
+    const C = { name: '市民', team: '市民', isWolf: false };
+    const B = { id: 'bounty', name: '賞金稼ぎ', team: '市民', isWolf: false };
+    const ps = [
+      { id: 'a', name: 'A', used: W },
+      { id: 'b', name: 'B', used: B },
+      { id: 'c', name: 'C', used: C },
+    ];
+    let r = judge(ps, ['a'], { b: 'a', c: 'a' });
+    assert(r.deltas['b'] === 2 && r.deltas['c'] === 1,
+      '賞金稼ぎ: 人狼に投票して市民勝利→勝利+1とボーナス+1で計+2');
+    r = judge(ps, ['c'], { b: 'c' });
+    assert(r.deltas['b'] === -1,
+      '賞金稼ぎ: 市民に投票→ボーナスなし・ペナルティ-1のみ');
+  }
+
+  // 名探偵: 陣営だけが分かる（8人戦）
+  {
+    const inbox = {};
+    const e = makeEngine(roles, ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'], inbox);
+    e.startGame();
+    for (const p of e.players) e.handlePick(p.id, chooseIdx(p.hand, 'detective'));
+    for (const p of e.players) {
+      const r = p.used;
+      if (r.phase === '明け方' && r.action !== 'none' && r.action !== 'mate_check') {
+        e.handleDawnAct(p.id, { targetId: other(e, p) });
+      }
+    }
+    e.startDay();
+    e.endDay();
+    const det = e.players.find(p => p.used.id === 'detective');
+    if (det) {
+      let guard = 0;
+      while (e.phase === 'afternoon' && e.steps[e.stepIndex].role.id !== 'detective' && guard++ < 10) {
+        const step = e.steps[e.stepIndex];
+        for (const a of e.stepActors(step)) e.handleAftAct(a.id, { targetId: other(e, a), fieldIndex: 0 });
+        e.nextStep();
+      }
+      if (e.phase === 'afternoon' && e.steps[e.stepIndex].role.id === 'detective') {
+        e.handleAftAct(det.id, { targetId: other(e, det) });
+        const msg = (inbox[det.id] || []).filter(m => m.type === 'aftResult').pop();
+        assert(msg && /陣営は/.test(msg.text) && !msg.cards,
+          '名探偵: 陣営のみ受信（役職カードは受信しない）');
+      } else {
+        log('SKIP: 名探偵ステップに到達せず');
+      }
+    } else {
+      log('SKIP: 名探偵が使用されなかった（配札次第）');
+    }
   }
 
   // 占い師の時間切れ→昼過ぎ持ち越し

@@ -149,6 +149,9 @@ export function renderLobby(msg, isHost, roomCode) {
     roleUl.appendChild(li);
   }
 
+  // 人数別の枚数表（現在の人数の列を強調）
+  renderRoleCountTable(msg.roleList, msg.players.length);
+
   const startBtn = $('btn-start');
   if (isHost) {
     startBtn.classList.remove('hidden');
@@ -159,11 +162,57 @@ export function renderLobby(msg, isHost, roomCode) {
   }
 }
 
+/** 人数別の役職枚数表を描画する */
+function renderRoleCountTable(roleList, currentCount) {
+  const table = $('role-count-table');
+  table.innerHTML = '';
+  const head = document.createElement('tr');
+  head.innerHTML = '<th>役職</th>';
+  for (let n = 3; n <= 8; n++) {
+    const th = document.createElement('th');
+    th.textContent = `${n}人`;
+    if (n === currentCount) th.classList.add('current-count');
+    head.appendChild(th);
+  }
+  table.appendChild(head);
+
+  for (const r of roleList) {
+    if (!r.counts) continue;
+    const tr = document.createElement('tr');
+    const tdName = document.createElement('td');
+    const span = document.createElement('span');
+    span.className = `role-name team-${r.team}`;
+    span.textContent = r.name;
+    tdName.appendChild(span);
+    tr.appendChild(tdName);
+    for (let n = 3; n <= 8; n++) {
+      const td = document.createElement('td');
+      const c = r.counts[n] || 0;
+      td.textContent = c === 0 ? '-' : c;
+      if (c === 0) td.classList.add('count-zero');
+      if (n === currentCount) td.classList.add('current-count');
+      tr.appendChild(td);
+    }
+    table.appendChild(tr);
+  }
+}
+
+/** 現在の山札の内訳テキスト（例: 人狼×2・占い師×1…） */
+function compositionText(composition) {
+  return (composition || []).map(c => `${c.name}×${c.count}`).join('・');
+}
+
+/** 手札パネル上部に山札の内訳を表示 */
+export function renderDeckInfo(composition) {
+  $('deck-info').textContent = `📦 この山札の内訳: ${compositionText(composition)}`;
+}
+
 // ---------- カード選択 ----------
 
 export function renderPick(msg, onPick) {
   showScreen('pick');
   $('pick-msg').textContent = '';
+  $('pick-comp').textContent = `📦 この山札の内訳: ${compositionText(msg.composition)}`;
   const row = $('pick-cards');
   row.innerHTML = '';
   msg.cards.forEach((card, i) => {
@@ -268,13 +317,14 @@ export function renderAfternoon(msg, onAct) {
     peek_used: '占う相手の「使用中」カードをタップしてください:',
     peek_field: '確認したい「伏せ」カードをタップしてください:',
     swap: '交換したい「伏せ」カードをタップしてください（その人の使用カードと入れ替わります）:',
+    peek_team: '陣営を調べたい相手の「使用中」カードをタップしてください（陣営だけが分かります）:',
   }[msg.actionType] || '対象のカードをタップしてください:';
   const p = document.createElement('p');
   p.textContent = `あなたは${msg.stepRoleName}です。${label}`;
   box.appendChild(p);
 
   // アクションに応じてクリックできるカードを変える
-  const mode = msg.actionType === 'peek_used' ? 'used'
+  const mode = (msg.actionType === 'peek_used' || msg.actionType === 'peek_team') ? 'used'
     : (msg.actionType === 'peek_field' && msg.smallGame) ? 'field-all'
     : 'field';
   const getSel = renderCardBoard(box, msg.targets, mode, msg.fieldCount);

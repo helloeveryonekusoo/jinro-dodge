@@ -63,9 +63,10 @@ function handleMessage(msg) {
       ui.hideHandPanel();
       ui.renderPick(msg, (index) => {
         sendToHost({ type: C2H.PICK, index });
-        // 配られたカードと全員の裏向きカードを画面に残す（メモ欄付き）
+        // 配られたカードと全員の裏向きカードを画面に残す（メモ欄・山札内訳付き）
         ui.renderHandPanel(msg.cards, index);
         ui.renderOthersPanel(msg.players, state.selfId, msg.handSize - 1);
+        ui.renderDeckInfo(msg.composition);
       });
       break;
 

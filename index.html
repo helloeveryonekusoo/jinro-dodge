@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>人狼ドッチ - オンライン</title>
-  <link rel="stylesheet" href="css/style.css?v=5">
+  <link rel="stylesheet" href="css/style.css?v=6">
   <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 </head>
 <body>
@@ -22,7 +22,7 @@
     }
   </script>
   <header id="app-header">
-    <h1>🐺 人狼ドッチ <small id="app-version">v5</small></h1>
+    <h1>🐺 人狼ドッチ <small id="app-version">v6</small></h1>
     <div id="room-info" class="hidden">
       <span>ルームコード: <strong id="room-code-display"></strong></span>
     </div>
@@ -76,6 +76,11 @@
       <div class="card-panel">
         <h3>役職一覧</h3>
         <ul id="role-list" class="role-list"></ul>
+        <h3>人数別の枚数表</h3>
+        <p class="note">現在の人数の列が強調表示されます。枚数0の役職はその人数では登場しません。</p>
+        <div class="table-wrap">
+          <table id="role-count-table" class="score-table"></table>
+        </div>
       </div>
     </section>
 
@@ -84,6 +89,7 @@
       <div class="card-panel">
         <h2>カードを選ぼう</h2>
         <p>配られたカードから <strong>使用する1枚</strong> を選んでください。残りは場に伏せられます。</p>
+        <p id="pick-comp" class="note"></p>
         <div id="pick-cards" class="card-row"></div>
         <p id="pick-msg" class="status-msg"></p>
       </div>
@@ -175,6 +181,7 @@
 
   <!-- 配られたカード＋全員のカード（裏向き）の常時表示・メモ -->
   <div id="hand-panel" class="hidden">
+    <div id="deck-info" class="hand-title"></div>
     <div class="hand-title">🃏 あなたに配られたカード（メモを書いて推理に使えます）</div>
     <div id="hand-cards"></div>
     <div class="hand-title">👥 他のプレイヤーのカード（裏向き・メモ可）</div>
@@ -184,6 +191,6 @@
   <!-- システム通知（トースト） -->
   <div id="toast-area"></div>
 
-  <script type="module" src="js/main.js?v=5"></script>
+  <script type="module" src="js/main.js?v=6"></script>
 </body>
 </html>
