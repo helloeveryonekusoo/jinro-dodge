@@ -72,9 +72,11 @@ function playGame(roles, n, { seerSkip = false, tie = false, nobody = false, nob
   // 延期・時間切れの有無に関係なく、全人数で占い師ステップが常に先頭にある
   assert(e.steps.length > 0 && e.steps[0].role.id === 'seer' && e.steps[0].onlySkipped,
     `${n}人戦: 昼過ぎ手順の先頭が占い師（常設）`);
-  // 枚数0の役職のステップは省略される（名探偵は6人以上のみ）
+  // 枚数0の役職のステップは省略される（CSVの枚数設定に追従）
+  const detRole = roles.find(r => r.id === 'detective');
   const hasDetective = e.steps.some(s => s.role.id === 'detective');
-  assert(n >= 6 ? hasDetective : !hasDetective,
+  const expectDetective = !!detRole && detRole.counts[n] > 0;
+  assert(hasDetective === expectDetective,
     `${n}人戦: 名探偵ステップの有無が枚数表と一致`);
   // 山札の内訳が配布時に送られている
   const pickMsg = (inbox['p0'] || []).find(m => m.type === 'pick');
