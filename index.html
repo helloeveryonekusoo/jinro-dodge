@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>人狼ドッチ - オンライン</title>
-  <link rel="stylesheet" href="css/style.css?v=6">
+  <link rel="stylesheet" href="css/style.css?v=7">
   <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 </head>
 <body>
@@ -22,7 +22,7 @@
     }
   </script>
   <header id="app-header">
-    <h1>🐺 人狼ドッチ <small id="app-version">v6</small></h1>
+    <h1>🐺 人狼ドッチ <small id="app-version">v7</small></h1>
     <div id="room-info" class="hidden">
       <span>ルームコード: <strong id="room-code-display"></strong></span>
     </div>
@@ -46,7 +46,9 @@
         </label>
         <div class="button-row">
           <button id="btn-join" class="primary">部屋に参加</button>
+          <button id="btn-spectate">👁 観戦する（神の視点）</button>
         </div>
+        <p class="note">観戦モードでは全員のカードと全アクションが見えます。プレイヤー数には含まれません。</p>
         <p id="home-error" class="error-msg"></p>
         <p id="home-status" class="status-msg"></p>
       </div>
@@ -172,6 +174,20 @@
       </div>
     </section>
 
+    <!-- 観戦（神の視点）画面 -->
+    <section id="screen-spectate" class="screen hidden">
+      <div class="card-panel">
+        <h2>👁 観戦モード（神の視点）</h2>
+        <p>現在のフェーズ: <strong id="god-phase">-</strong></p>
+        <p id="god-comp" class="note"></p>
+        <div id="god-players" class="god-grid"></div>
+      </div>
+      <div class="card-panel">
+        <h3>実況ログ（全アクション）</h3>
+        <ul id="god-log" class="log-list god-log"></ul>
+      </div>
+    </section>
+
   </main>
 
   <!-- 自分のカード表示（ゲーム中は常時表示） -->
@@ -191,6 +207,6 @@
   <!-- システム通知（トースト） -->
   <div id="toast-area"></div>
 
-  <script type="module" src="js/main.js?v=6"></script>
+  <script type="module" src="js/main.js?v=7"></script>
 </body>
 </html>

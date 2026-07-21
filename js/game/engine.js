@@ -11,6 +11,13 @@ const DAY_SECONDS = 180;      // 昼の議論時間（約3分）
 const EVENING_SECONDS = 300;  // 夕方の最終議論時間（5分）
 const ACTION_SECONDS = 15;    // 役職アクションの制限時間（固定・短縮不可）
 
+// 観戦画面に表示するフェーズ名
+const PHASE_LABELS = {
+  lobby: 'ロビー', pick: 'カード選択', dawn: '明け方', day: '昼（議論）',
+  afternoon: '昼過ぎ（役職アクション）', evening: '夕方（最終議論）',
+  vote: '投票', result: '結果',
+};
+
 export class Engine {
   /**
    * @param {Array} roles - roles.csv から読み込んだ役職定義
@@ -20,6 +27,7 @@ export class Engine {
     this.roles = roles;
     this.sendFn = send;
     this.players = [];      // {id, name, connected, score, hand, used, field, ...}
+    this.spectators = [];   // {id, name} 観戦者（神の視点・ゲームに介入しない）
     this.hostId = null;
     this.phase = 'lobby';
     this.smallGame = false; // 3〜4人戦（ハウスルール②）
@@ -34,10 +42,60 @@ export class Engine {
   broadcast(msg) {
     for (const p of this.players) if (p.connected) this.send(p.id, msg);
   }
-  log(text) { this.broadcast({ type: H2C.LOG, text }); }
+  log(text) {
+    this.broadcast({ type: H2C.LOG, text });
+    this.godLog(text);
+  }
 
   connectedPlayers() { return this.players.filter(p => p.connected); }
   getPlayer(id) { return this.players.find(p => p.id === id); }
+
+  // ---------- 観戦者（神の視点） ----------
+
+  addSpectator(id, name) {
+    const safeName = String(name || '').trim().slice(0, 10) || '観戦者';
+    this.spectators.push({ id, name: safeName });
+    this.send(id, { type: H2C.SPECTATE_OK });
+    this.godLog(`👁 ${safeName}さんが観戦を始めました。`);
+    this.sendGodState();
+    return true;
+  }
+
+  removeSpectator(id) {
+    this.spectators = this.spectators.filter(s => s.id !== id);
+  }
+
+  isSpectator(id) { return this.spectators.some(s => s.id === id); }
+
+  /** 観戦者だけに実況ログを送る */
+  godLog(text) {
+    for (const s of this.spectators) this.send(s.id, { type: H2C.GOD_LOG, text });
+  }
+
+  /** 観戦者だけに全員のカードを含む全状態を送る */
+  sendGodState() {
+    if (this.spectators.length === 0) return;
+    const count = this.players.length;
+    const msg = {
+      type: H2C.GOD_STATE,
+      phaseLabel: PHASE_LABELS[this.phase] || this.phase,
+      composition: this.roles
+        .filter(r => (r.counts[count] || 0) > 0)
+        .map(r => ({ name: r.name, team: r.team, count: r.counts[count] })),
+      players: this.players.map(p => ({
+        name: p.name,
+        connected: p.connected,
+        score: p.score,
+        used: p.used ? roleView(p.used) : null,
+        field: (p.field || []).map(roleView),
+        voted: this.phase === 'vote' && !!this.votes[p.id],
+        voteTarget: this.votes[p.id]
+          ? (this.votes[p.id] === NOBODY ? '人狼はいない' : this.getPlayer(this.votes[p.id])?.name)
+          : null,
+      })),
+    };
+    for (const s of this.spectators) this.send(s.id, msg);
+  }
 
   // ---------- ロビー ----------
 
@@ -127,6 +185,9 @@ export class Engine {
       .filter(r => r.counts[count] > 0)
       .map(r => ({ name: r.name, team: r.team, count: r.counts[count] }));
 
+    this.godLog(`🎬 ${count}人でゲーム開始（山札: ${composition.map(c => `${c.name}×${c.count}`).join('・')}）`);
+    this.godLog(`🂠 配札: ${this.players.map(p => `${p.name}[${p.hand.map(h => h.name).join('/')}]`).join(' ')}`);
+
     for (const p of this.players) {
       this.send(p.id, {
         type: H2C.PICK,
@@ -149,6 +210,8 @@ export class Engine {
     p.used = p.hand[i];
     p.field = p.hand.filter((_, k) => k !== i);
     p.picked = true;
+    this.godLog(`🃏 ${p.name} が「${p.used.name}」を使用カードに選択（伏せ: ${p.field.map(f => f.name).join('・')}）`);
+    this.sendGodState();
     this.checkAllPicked();
   }
 
@@ -196,6 +259,8 @@ export class Engine {
       }
       this.send(p.id, msg);
     }
+    this.godLog(`🌄 明け方フェーズ開始（${ACTION_SECONDS}秒）`);
+    this.sendGodState();
     // 全員同じ15秒。誰が何をしているかタイミングからは分からない
     clearTimeout(this.timerHandle);
     this.timerHandle = setTimeout(() => {
@@ -225,6 +290,7 @@ export class Engine {
       p.dawnSkipped = true;
       p.dawnActed = true;
       this.send(id, { type: H2C.DAWN_RESULT, skipped: true });
+      this.godLog(`⏭ ${p.name}（${p.used.name}）は占いを昼過ぎに延期`);
       return;
     }
     const target = this.getPlayer(targetId);
@@ -232,6 +298,7 @@ export class Engine {
     p.dawnActed = true;
     // peek_used: 対象の使用カードを見る
     this.send(id, { type: H2C.DAWN_RESULT, targetName: target.name, card: roleView(target.used) });
+    this.godLog(`🔮 ${p.name}（${p.used.name}）が ${target.name} を占った → 「${target.used.name}」`);
   }
 
   // ---------- 昼（議論） ----------
@@ -240,6 +307,8 @@ export class Engine {
     this.carryOverDawnActors();
     this.phase = 'day';
     this.broadcast({ type: H2C.DAY, duration: DAY_SECONDS });
+    this.godLog(`☀️ 昼フェーズ（議論${DAY_SECONDS / 60}分）開始`);
+    this.sendGodState();
     this.timerHandle = setTimeout(() => this.startAfternoon(), DAY_SECONDS * 1000);
   }
 
@@ -272,14 +341,20 @@ export class Engine {
         this.steps.push({ role, onlySkipped: false });
       }
     }
+    // 実行者は「昼過ぎ開始時点の使用カード」で確定させる。
+    // 途中でDJがカードを入れ替えても実行権は移動しない
+    // （移動すると、操作画面が出た／出ないことからDJの交換が露見してしまうため）。
+    for (const step of this.steps) {
+      step.actorIds = this.players
+        .filter(p => p.used.id === step.role.id && (!step.onlySkipped || p.dawnSkipped))
+        .map(p => p.id);
+    }
     this.stepIndex = -1;
     this.nextStep();
   }
 
   stepActors(step) {
-    return this.players.filter(p =>
-      p.used.id === step.role.id && (!step.onlySkipped || p.dawnSkipped)
-    );
+    return step.actorIds.map(id => this.getPlayer(id)).filter(Boolean);
   }
 
   nextStep() {
@@ -312,6 +387,7 @@ export class Engine {
           .map(q => ({ id: q.id, name: q.name })),
       });
     }
+    this.godLog(`🕒 昼過ぎ: ${step.role.name}のアクション時間（該当者: ${actors.length > 0 ? actors.map(a => a.name).join('・') : 'なし'}）`);
     // 15秒経ったら必ず次のステップへ（実行済みでも短縮しない）
     const idx = this.stepIndex;
     this.timerHandle = setTimeout(() => {
@@ -332,6 +408,7 @@ export class Engine {
     if (pass && step.role.action === 'swap') {
       step.doneIds.add(id);
       this.send(id, { type: H2C.AFT_RESULT, text: '交換しませんでした。' });
+      this.godLog(`🎧 ${p.name}（${step.role.name}）は交換しなかった`);
       return;
     }
 
@@ -346,6 +423,7 @@ export class Engine {
           text: `${target.name}さんの使用カードを確認しました。`,
           cards: [roleView(target.used)],
         });
+        this.godLog(`🔮 ${p.name}（${step.role.name}）が ${target.name} を占った → 「${target.used.name}」`);
         break;
       }
       case 'peek_team': { // 名探偵: 対象の陣営だけを知る（役職名は分からない）
@@ -354,6 +432,7 @@ export class Engine {
           type: H2C.AFT_RESULT,
           text: `🔎 ${target.name}さんの陣営は「${target.used.team}」です。`,
         });
+        this.godLog(`🔎 ${p.name}（${step.role.name}）が ${target.name} の陣営を調査 → 「${target.used.team}」`);
         break;
       }
       case 'peek_field': { // 警官: 伏せカードを見る（少人数戦は2枚とも）
@@ -365,6 +444,7 @@ export class Engine {
           // どのカードか分かるように「伏せ1/伏せ2」のラベルを付ける
           cards: cards.map((c, i) => ({ ...roleView(c), label: `伏せ${i + 1}` })),
         });
+        this.godLog(`👮 ${p.name}（${step.role.name}）が ${target.name} の伏せカードを確認 → 「${cards.map(c => c.name).join('・')}」`);
         break;
       }
       case 'swap': { // DJ: 対象の伏せカードと使用カードを交換
@@ -377,6 +457,8 @@ export class Engine {
         // 交換したことは対象者本人にも通知しない。
         // 全カードは裏のまま進行し、真実は結果発表で明らかになる。
         this.send(id, { type: H2C.AFT_RESULT, text: `${target.name}さんのカードを交換しました。（中身は見られません）` });
+        this.godLog(`🎧 ${p.name}（${step.role.name}）が ${target.name} の使用カードと伏せ${fi + 1}を交換 → ${target.name}の使用カードは「${target.used.name}」に`);
+        this.sendGodState();
         break;
       }
       default:
@@ -389,6 +471,8 @@ export class Engine {
   startEvening() {
     this.phase = 'evening';
     this.broadcast({ type: H2C.EVENING, duration: EVENING_SECONDS });
+    this.godLog(`🌇 夕方フェーズ（最終議論${EVENING_SECONDS / 60}分）開始`);
+    this.sendGodState();
     this.timerHandle = setTimeout(() => this.startVote(), EVENING_SECONDS * 1000);
   }
 
@@ -411,6 +495,8 @@ export class Engine {
         return { id: c.id, name: c.name };
       }),
     });
+    this.godLog('🗳 投票フェーズ開始');
+    this.sendGodState();
   }
 
   handleVote(id, targetId) {
@@ -420,6 +506,9 @@ export class Engine {
     if (targetId === id) return; // 自分には投票できない
     if (!this.voteCandidates.includes(targetId)) return;
     this.votes[id] = targetId;
+    const targetName = targetId === NOBODY ? '人狼はいない' : this.getPlayer(targetId).name;
+    this.godLog(`🗳 ${p.name} → ${targetName} に投票`);
+    this.sendGodState();
     this.checkAllVoted();
   }
 
@@ -485,6 +574,16 @@ export class Engine {
         name: p.name, delta: deltas[p.id], total: p.score,
       })),
     });
+
+    const exiledLabel = ids.length > 0
+      ? ids.map(id => {
+          const e = this.getPlayer(id);
+          return `${e.name}（${e.used.name}）`;
+        }).join('・')
+      : '追放なし';
+    this.godLog(`📢 結果: 追放 ${exiledLabel} → ${winnerLabel}`);
+    this.godLog(`💯 得点: ${this.players.map(p => `${p.name} ${deltas[p.id] > 0 ? '+' : ''}${deltas[p.id]}（計${p.score}）`).join(' / ')}`);
+    this.sendGodState();
   }
 
   nextGame() { // 得点を持ち越して再戦（大会形式）

@@ -8,9 +8,9 @@ export class ClientNet {
   /**
    * @param {string} code - ルームコード
    * @param {string} name - プレイヤー名
-   * @param {Object} handlers - {onMessage, onOpen, onError, onClose}
+   * @param {Object} handlers - {onMessage, onOpen, onError, onClose, spectate?}
    */
-  connect(code, name, { onMessage, onOpen, onError, onClose }) {
+  connect(code, name, { onMessage, onOpen, onError, onClose, spectate = false }) {
     this.peer = new Peer();
     this.conn = null;
     let opened = false;
@@ -28,7 +28,7 @@ export class ClientNet {
       conn.on('open', () => {
         opened = true;
         clearTimeout(timeout);
-        conn.send({ type: C2H.JOIN, name });
+        conn.send({ type: spectate ? C2H.JOIN_SPECTATE : C2H.JOIN, name });
         onOpen();
       });
       conn.on('data', (msg) => onMessage(msg));

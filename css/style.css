@@ -237,6 +237,38 @@ button.selected { outline: 3px solid #e0af68; }
   color: #eceff4;
 }
 
+/* 観戦モード（神の視点） */
+.god-grid {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+.god-player {
+  flex: 1 1 150px;
+  max-width: 220px;
+  background: #1b1e2b;
+  border: 2px solid #3b4261;
+  border-radius: 10px;
+  padding: 10px;
+}
+.god-name { font-weight: bold; margin-bottom: 6px; }
+.god-card {
+  font-size: 0.85rem;
+  padding: 4px 8px;
+  margin: 3px 0;
+  border-radius: 6px;
+  background: #24283b;
+  border-left: 3px solid #3b4261;
+}
+.god-card.used { font-weight: bold; border-left-width: 5px; }
+.god-card.team-市民 { border-left-color: #9ece6a; color: #9ece6a; }
+.god-card.team-人狼 { border-left-color: #f7768e; color: #f7768e; }
+.god-card.team-おばけ { border-left-color: #bb9af7; color: #bb9af7; }
+.god-vote { font-size: 0.8rem; color: #e0af68; margin-top: 6px; }
+.god-score { font-size: 0.8rem; color: #a9b1d6; margin-top: 4px; }
+.god-log { max-height: 320px; overflow-y: auto; }
+
 /* 「人狼はいない」投票ボタン */
 .target-btn.nobody {
   background: #2d2a1f;

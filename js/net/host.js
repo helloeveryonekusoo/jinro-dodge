@@ -65,6 +65,7 @@ export class HostNet {
         for (const [pid, c] of this.conns) {
           if (c === conn) {
             this.conns.delete(pid);
+            this.engine.removeSpectator(pid);
             this.engine.removePlayer(pid);
             break;
           }
@@ -96,6 +97,13 @@ export class HostNet {
       this.engine.addPlayer(playerId, msg.name);
       return;
     }
+    if (msg.type === C2H.JOIN_SPECTATE) {
+      this.conns.set(playerId, conn);
+      this.engine.addSpectator(playerId, msg.name);
+      return;
+    }
+    // 観戦者はゲームに一切介入できない
+    if (this.engine.isSpectator(playerId)) return;
     this.route(playerId, msg);
   }
 

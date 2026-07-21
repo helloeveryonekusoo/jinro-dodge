@@ -8,6 +8,7 @@
 <iframe id="f0" src="../index.html"></iframe>
 <iframe id="f1" src="../index.html"></iframe>
 <iframe id="f2" src="../index.html"></iframe>
+<iframe id="f3" src="../index.html"></iframe>
 <script>
 // 3つのiframeで ホスト+2クライアント を実際のPeerJS通信込みで自動プレイする。
 // 進捗はローカルサーバのアクセスログに GET /E2E-xxx として記録される。
@@ -27,7 +28,7 @@ const once = (key, msg) => { if (!reported.has(key)) { reported.add(key); report
 async function main() {
   await sleep(2000); // iframe読み込み待ち
 
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < 4; i++) {
     win(i).onerror = (m) => report(`JSERROR-f${i}-${m}`);
   }
 
@@ -54,6 +55,13 @@ async function main() {
     await sleep(1500);
   }
   report('step3-clients-joined');
+
+  // 4つ目のフレームは観戦者として参加
+  doc(3).getElementById('input-name').value = '観戦者';
+  doc(3).getElementById('input-code').value = code;
+  doc(3).getElementById('btn-spectate').click();
+  await sleep(2000);
+  report('step4-spectator-joined');
 
   const states = ['', '', ''];
   let resultText = '';
@@ -140,13 +148,20 @@ async function main() {
     for (let i = 0; i < 3; i++) {
       try { tick(i); } catch (e) { once('tickerr' + i, `TICKERROR-f${i}-${e.message}`); }
     }
-    if (states.every(s => s === 'result')) {
+    if (t % 20 === 0) report(`HEARTBEAT-t${t}-states=${states.join(',')}`);
+    if (states.slice(0, 3).every(s => s === 'result')) {
+      // 観戦者が全員のカードと実況ログを受け取れているか確認
+      const gd = doc(3);
+      const specScreen = vis(gd.getElementById('screen-spectate'));
+      const cardCount = gd.querySelectorAll('#god-players .god-card.used').length;
+      const logCount = gd.querySelectorAll('#god-log li').length;
+      report(`SPECTATE-screen=${specScreen}-cards=${cardCount}-logs=${logCount}`);
       report('TESTRESULT-SUCCESS-' + resultText);
       return;
     }
     await sleep(500);
   }
-  report('TESTRESULT-TIMEOUT-states-' + states.join(','));
+  report('TESTRESULT-TIMEOUT-states-' + states.slice(0, 3).join(','));
 }
 main();
 </script>

@@ -543,6 +543,75 @@ export function hideHandPanel() {
   $('hand-panel').classList.add('hidden');
 }
 
+// ---------- 観戦（神の視点） ----------
+
+/** 観戦画面の全プレイヤー状態を描画する */
+export function renderGodState(msg) {
+  showScreen('spectate');
+  $('god-phase').textContent = msg.phaseLabel;
+  $('god-comp').textContent = msg.composition && msg.composition.length
+    ? `📦 山札: ${msg.composition.map(c => `${c.name}×${c.count}`).join('・')}` : '';
+
+  const grid = $('god-players');
+  grid.innerHTML = '';
+  for (const p of msg.players) {
+    const col = document.createElement('div');
+    col.className = 'god-player';
+
+    const nm = document.createElement('div');
+    nm.className = 'god-name';
+    nm.textContent = p.name + (p.connected ? '' : '（切断）');
+    col.appendChild(nm);
+
+    if (p.used) {
+      const used = document.createElement('div');
+      used.className = `god-card team-${p.used.team} used`;
+      used.textContent = `使用: ${p.used.name}`;
+      col.appendChild(used);
+      p.field.forEach((f, i) => {
+        const fe = document.createElement('div');
+        fe.className = `god-card team-${f.team}`;
+        fe.textContent = `伏せ${i + 1}: ${f.name}`;
+        col.appendChild(fe);
+      });
+    } else {
+      const wait = document.createElement('div');
+      wait.className = 'god-card';
+      wait.textContent = 'カード未選択';
+      col.appendChild(wait);
+    }
+
+    if (p.voteTarget) {
+      const v = document.createElement('div');
+      v.className = 'god-vote';
+      v.textContent = `🗳 → ${p.voteTarget}`;
+      col.appendChild(v);
+    }
+
+    const sc = document.createElement('div');
+    sc.className = 'god-score';
+    sc.textContent = `${p.score}点`;
+    col.appendChild(sc);
+
+    grid.appendChild(col);
+  }
+}
+
+/** 観戦画面の実況ログに1行追加する */
+export function addGodLog(text) {
+  const ul = $('god-log');
+  const li = document.createElement('li');
+  li.textContent = text;
+  ul.appendChild(li);
+  // 最新が見えるように自動スクロール
+  ul.scrollTop = ul.scrollHeight;
+}
+
+export function showSpectateWaiting() {
+  showScreen('spectate');
+  $('god-phase').textContent = 'ゲーム開始を待っています…';
+}
+
 // ---------- タイマー画面のホストボタン ----------
 
 export function setupHostButtons(isHost) {

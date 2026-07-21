@@ -272,6 +272,86 @@ try {
     }
   }
 
+  // DJに入れ替えられても名探偵の実行権は移動しない（昼過ぎ開始時点で確定）
+  {
+    const R = id => roles.find(r => r.id === id);
+    const det = R('detective'), dj = R('dj'), cit = R('citizen'),
+          wolf = R('werewolf'), ghost = R('ghost');
+    const inbox = {};
+    const e = makeEngine(roles, ['A', 'B', 'C', 'D', 'E'], inbox);
+    e.startGame();
+    // A=DJ, B=市民(伏せに名探偵), C=名探偵(伏せに市民)
+    e.players[0].used = dj;    e.players[0].field = [cit];
+    e.players[1].used = cit;   e.players[1].field = [det];
+    e.players[2].used = det;   e.players[2].field = [cit];
+    e.players[3].used = wolf;  e.players[3].field = [cit];
+    e.players[4].used = ghost; e.players[4].field = [cit];
+    e.players.forEach(p => p.picked = true);
+    e.phase = 'day';
+    e.endDay();
+
+    let guard = 0;
+    while (e.phase === 'afternoon' && e.steps[e.stepIndex].role.id !== 'dj' && guard++ < 10) e.nextStep();
+    assert(e.steps[e.stepIndex].role.id === 'dj', 'DJステップに到達');
+    // DJがCの名探偵カードを伏せに落とし、Bの伏せの名探偵を表に上げる
+    e.handleAftAct('p0', { targetId: 'p2', fieldIndex: 0 });
+    assert(e.players[2].used.id === 'citizen', 'DJ交換でCの使用カードが市民になった');
+    e.nextStep();
+
+    const step = e.steps[e.stepIndex];
+    assert(step.role.id === 'detective', '次は名探偵ステップ');
+    const actorIds = e.stepActors(step).map(a => a.id);
+    assert(actorIds.includes('p2'),
+      'カードを奪われた元の名探偵Cが実行権を保持する');
+    assert(!actorIds.includes('p1'),
+      '名探偵カードを押し付けられたBには実行権が渡らない（DJの交換が露見しない）');
+    // 実際に調査もできる
+    e.handleAftAct('p2', { targetId: 'p3' });
+    const res = (inbox['p2'] || []).filter(m => m.type === 'aftResult').pop();
+    assert(!!res && res.text.includes('陣営は'), '元の名探偵Cは調査を実行できる');
+  }
+
+  // 観戦モード（神の視点）
+  {
+    const inbox = {};
+    const e = makeEngine(roles, ['A', 'B', 'C', 'D', 'E'], inbox);
+    e.addSpectator('spec', '観戦者');
+    assert(e.players.length === 5, '観戦者はプレイヤー数に含まれない');
+    assert(e.isSpectator('spec') && !e.isSpectator('p0'), '観戦者の判定が正しい');
+
+    e.startGame();
+    for (const p of e.players) e.handlePick(p.id, 0);
+    const godStates = (inbox['spec'] || []).filter(m => m.type === 'godState');
+    const last = godStates[godStates.length - 1];
+    assert(!!last && last.players.length === 5, '観戦者が全プレイヤーの状態を受信');
+    assert(last.players.every(p => p.used && p.used.name), '観戦者に全員の使用カードが見える');
+    assert(last.players.every(p => Array.isArray(p.field) && p.field.length > 0),
+      '観戦者に全員の伏せカードが見える');
+
+    // プレイヤーには神の視点メッセージが届かない
+    const leakedToPlayer = e.players.some(p =>
+      (inbox[p.id] || []).some(m => m.type === 'godState' || m.type === 'godLog'));
+    assert(!leakedToPlayer, 'プレイヤーには神の視点メッセージが届かない');
+
+    // 実況ログに配札とカード選択が記録される
+    const logs = (inbox['spec'] || []).filter(m => m.type === 'godLog').map(m => m.text);
+    assert(logs.some(t => t.includes('配札')), '観戦ログに配札が記録される');
+    assert(logs.some(t => t.includes('使用カードに選択')), '観戦ログにカード選択が記録される');
+
+    // 投票も観戦ログに残る
+    e.startDay(); e.endDay();
+    let guard = 0;
+    while (e.phase === 'afternoon' && guard++ < 20) e.nextStep();
+    e.endEvening();
+    for (const p of e.players) e.handleVote(p.id, p.id === 'p0' ? 'p1' : 'p0');
+    const logs2 = (inbox['spec'] || []).filter(m => m.type === 'godLog').map(m => m.text);
+    assert(logs2.some(t => t.includes('投票')), '観戦ログに投票が記録される');
+    assert(logs2.some(t => t.includes('結果:')), '観戦ログに結果が記録される');
+
+    e.removeSpectator('spec');
+    assert(!e.isSpectator('spec'), '観戦者を削除できる');
+  }
+
   // 占い師の時間切れ→昼過ぎ持ち越し
   {
     const inbox = {};

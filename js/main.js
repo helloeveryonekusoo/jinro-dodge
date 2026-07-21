@@ -14,6 +14,7 @@ const $ = (id) => document.getElementById(id);
 
 const state = {
   isHost: false,
+  isSpectator: false,
   selfId: null,
   hostNet: null,
   clientNet: null,
@@ -38,6 +39,17 @@ function chimeOnce(key, vote = false) {
 // ---------- 受信メッセージの処理 ----------
 
 function handleMessage(msg) {
+  // 観戦者は神の視点の画面だけを扱う
+  if (state.isSpectator) {
+    switch (msg.type) {
+      case H2C.SPECTATE_OK: ui.showSpectateWaiting(); break;
+      case H2C.GOD_STATE: ui.renderGodState(msg); break;
+      case H2C.GOD_LOG: ui.addGodLog(msg.text); break;
+      case H2C.ERROR: showToast(`⚠ ${msg.msg}`); break;
+    }
+    return;
+  }
+
   switch (msg.type) {
     case H2C.JOINED:
       state.selfId = msg.selfId;
@@ -181,7 +193,8 @@ $('btn-create').addEventListener('click', async () => {
   );
 });
 
-$('btn-join').addEventListener('click', () => {
+/** 部屋に参加する（プレイヤー / 観戦者 共通） */
+function joinRoom(spectate) {
   const name = getName();
   if (!name) return;
   const code = $('input-code').value.trim().toUpperCase();
@@ -190,29 +203,37 @@ $('btn-join').addEventListener('click', () => {
     return;
   }
   ui.setHomeError('');
-  ui.setHomeStatus('接続中…');
+  ui.setHomeStatus(spectate ? '観戦モードで接続中…' : '接続中…');
   $('btn-join').disabled = true;
+  $('btn-spectate').disabled = true;
 
   state.isHost = false;
+  state.isSpectator = spectate;
   state.roomCode = code;
   state.clientNet = new ClientNet();
   state.clientNet.connect(code, name, {
+    spectate,
     onMessage: handleMessage,
     onOpen: () => {
       ui.setRoomCode(code);
       ui.setHomeStatus('');
-      enterGameUI();
+      if (!spectate) enterGameUI();
     },
     onError: (err) => {
       ui.setHomeError(err);
       ui.setHomeStatus('');
       $('btn-join').disabled = false;
+      $('btn-spectate').disabled = false;
+      state.isSpectator = false;
     },
     onClose: () => {
       showToast('⚠ ホストとの接続が切れました。ページを再読み込みして入り直してください。', 15000);
     },
   });
-});
+}
+
+$('btn-join').addEventListener('click', () => joinRoom(false));
+$('btn-spectate').addEventListener('click', () => joinRoom(true));
 
 // ホスト専用ボタン
 $('btn-start').addEventListener('click', () => state.hostNet.startGame());
